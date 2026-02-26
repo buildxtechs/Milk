@@ -24,7 +24,13 @@ export default function PayoutPage() {
     const [showSignature, setShowSignature] = useState(false);
     const [payoutSuccess, setPayoutSuccess] = useState(false);
 
-    const activeCustomers = customers.filter(c => c.status === 'active');
+    const activeCustomers = customers.filter(c => c.status === 'active').sort((a, b) => {
+        const balanceA = advances.filter(adv => adv.customerId === a.id).reduce((s, adv) => s + adv.remainingBalance, 0);
+        const balanceB = advances.filter(adv => adv.customerId === b.id).reduce((s, adv) => s + adv.remainingBalance, 0);
+        if (balanceA === 0 && balanceB !== 0) return 1;
+        if (balanceA !== 0 && balanceB === 0) return -1;
+        return balanceB - balanceA;
+    });
     const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
     const customerBalance = useMemo(() => {

@@ -36,7 +36,11 @@ export default function MemberSummaryPage() {
         row.name.toLowerCase().includes(search.toLowerCase()) ||
         row.id.toLowerCase().includes(search.toLowerCase()) ||
         row.village.toLowerCase().includes(search.toLowerCase())
-    );
+    ).sort((a, b) => {
+        if (a.currentBalance === 0 && b.currentBalance !== 0) return 1;
+        if (a.currentBalance !== 0 && b.currentBalance === 0) return -1;
+        return b.currentBalance - a.currentBalance;
+    });
 
     return (
         <div className="animate-fade-in">
@@ -109,7 +113,7 @@ export default function MemberSummaryPage() {
                                 </tr>
                             ) : (
                                 filtered.map((row) => (
-                                    <tr key={row.id}>
+                                    <tr key={row.id} className={row.currentBalance === 0 ? 'print-hide' : ''}>
                                         <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>{row.id}</td>
                                         <td style={{ fontWeight: 600 }}>{row.name}</td>
                                         <td style={{ fontWeight: 600, color: 'var(--success)' }}>{formatCurrency(row.totalInitial)}</td>
@@ -131,6 +135,7 @@ export default function MemberSummaryPage() {
                 @media print {
                     .no-print { display: none !important; }
                     .print-only-cell { display: table-cell !important; }
+                    .print-hide { display: none !important; }
                     .card { border: none; box-shadow: none; }
                     .export-table th { background: #f8fafc !important; color: black !important; border-bottom: 2px solid #e2e8f0; }
                     .export-table td { border-bottom: 1px solid #e2e8f0; }

@@ -5,7 +5,7 @@ import { useStore, useCustomers, useAdvances } from '@/lib/store';
 import { translations, Translations } from '@/lib/translations';
 import { Advance, Customer } from '@/lib/types';
 import { generateAdvanceId, formatDate, formatCurrency, todayStr, generateWhatsAppLink, parseTemplate } from '@/lib/utils';
-import { Plus, Search, Wallet, X, Clock, User, ArrowUpCircle } from 'lucide-react';
+import { Plus, Search, Wallet, X, Clock, User, ArrowUpCircle, CalendarDays } from 'lucide-react';
 
 export default function AmountCreditsPage() {
     const language = useStore((s) => s.language);
@@ -13,6 +13,7 @@ export default function AmountCreditsPage() {
     const customers = useCustomers();
     const advances = useAdvances();
     const addAdvance = useStore((s) => s.addAdvance);
+    const updateAdvance = useStore((s) => s.updateAdvance);
     const settings = useStore((s) => s.settings);
 
     const [search, setSearch] = useState('');
@@ -40,17 +41,28 @@ export default function AmountCreditsPage() {
 
         const currentBalance = customerAdvances.reduce((sum, a) => sum + a.remainingBalance, 0);
 
+        // Find last credit date
+        const lastCreditDate = customerAdvances.length > 0
+            ? [...customerAdvances].sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0].date
+            : null;
+
         return {
             ...customer,
             initialAmount,
             addedAmount,
-            currentBalance
+            currentBalance,
+            lastCreditDate
         };
     }).filter(c =>
         c.name.toLowerCase().includes(search.toLowerCase()) ||
         c.id.toLowerCase().includes(search.toLowerCase()) ||
         c.village.toLowerCase().includes(search.toLowerCase())
-    );
+    ).sort((a, b) => {
+        // Sort by balance: highest first, zeros at bottom
+        if (a.currentBalance === 0 && b.currentBalance !== 0) return 1;
+        if (a.currentBalance !== 0 && b.currentBalance === 0) return -1;
+        return b.currentBalance - a.currentBalance;
+    });
 
     const handleSaveCredit = (data: Omit<Advance, 'id' | 'createdAt'>) => {
         const id = generateAdvanceId(advances.map(a => a.id));
@@ -75,6 +87,22 @@ export default function AmountCreditsPage() {
         }
 
         setShowModal(false);
+    };
+
+    // Handle inline direct credit
+    const handleInlineCredit = (customerId: string, amount: number) => {
+        if (amount <= 0) return;
+        const id = generateAdvanceId(advances.map(a => a.id));
+        addAdvance({
+            id,
+            customerId,
+            date: todayStr(),
+            amount,
+            remainingBalance: amount,
+            notes: 'Direct credit',
+            createdAt: new Date().toISOString()
+        });
+        showToast(`₹${amount} ${language === 'ta' ? 'சேர்க்கப்பட்டது' : 'credited successfully'}`);
     };
 
     return (
@@ -129,21 +157,22 @@ export default function AmountCreditsPage() {
                                 <th>{t.initialAmount} (₹)</th>
                                 <th>{t.addedAmount} (₹)</th>
                                 <th>{t.currentBalance} (₹)</th>
-                                <th className="no-print" style={{ width: '80px' }}>{t.actions}</th>
+                                <th className="no-print" style={{ width: '120px' }}>{language === 'ta' ? 'நேரடி வரவு' : 'Add Credit'} (₹)</th>
+                                <th className="no-print" style={{ width: '160px' }}>{t.actions}</th>
                                 <th className="print-only-cell" style={{ width: '40px' }}>{t.check}</th>
                             </tr>
                         </thead>
                         <tbody>
                             {customerFinanceData.length === 0 ? (
                                 <tr>
-                                    <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                                    <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                                         <Wallet size={32} style={{ opacity: 0.3, margin: '0 auto 8px', display: 'block' }} />
                                         {t.noData}
                                     </td>
                                 </tr>
                             ) : (
-                                customerFinanceData.map((c) => (
-                                    <tr key={c.id}>
+                                customerFinanceData.map((c, index) => (
+                                    <tr key={c.id} className={c.currentBalance === 0 ? 'print-hide' : ''}>
                                         <td style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600, color: 'var(--primary)' }}>{c.id}</td>
                                         <td style={{ fontWeight: 600 }}>{c.name}</td>
                                         <td>{c.village}</td>
@@ -157,8 +186,54 @@ export default function AmountCreditsPage() {
                                                 </span>
                                             )}
                                         </td>
+                                        {/* Direct Credit Input */}
                                         <td className="no-print">
-                                            <div style={{ display: 'flex', gap: '4px' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>₹</span>
+                                                <input
+                                                    type="number"
+                                                    className="form-input"
+                                                    data-index={index}
+                                                    data-field="direct-credit"
+                                                    style={{ width: '90px', height: '32px', padding: '0 8px', fontSize: '13px' }}
+                                                    placeholder="0"
+                                                    min={0}
+                                                    onFocus={e => e.target.select()}
+                                                    onBlur={(e) => {
+                                                        const val = Number(e.target.value);
+                                                        if (val > 0) {
+                                                            handleInlineCredit(c.id, val);
+                                                            e.target.value = '';
+                                                        }
+                                                    }}
+                                                    onKeyDown={(e: any) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            const val = Number(e.target.value);
+                                                            if (val > 0) {
+                                                                handleInlineCredit(c.id, val);
+                                                                e.target.value = '';
+                                                            }
+                                                            const nextEl = document.querySelector(`input[data-field="direct-credit"][data-index="${index + 1}"]`) as HTMLInputElement;
+                                                            if (nextEl) {
+                                                                nextEl.focus();
+                                                                nextEl.select();
+                                                            } else {
+                                                                e.target.blur();
+                                                            }
+                                                        }
+                                                    }}
+                                                />
+                                            </div>
+                                        </td>
+                                        <td className="no-print">
+                                            <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                                                {c.lastCreditDate && (
+                                                    <span style={{ fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '2px', marginRight: '4px' }}>
+                                                        <CalendarDays size={12} />
+                                                        {formatDate(c.lastCreditDate)}
+                                                    </span>
+                                                )}
                                                 <button
                                                     className="btn btn-ghost btn-sm btn-icon"
                                                     title={t.creditHistory}
@@ -193,6 +268,7 @@ export default function AmountCreditsPage() {
                     .no-print { display: none !important; }
                     .print-only { display: block !important; }
                     .print-only-cell { display: table-cell !important; }
+                    .print-hide { display: none !important; }
                     .card { border: none !important; box-shadow: none !important; margin: 0 !important; padding: 0 !important; }
                     .table-container { overflow: visible !important; border: none !important; }
                     table { width: 100%; border-collapse: collapse !important; border: 1px solid #000 !important; }

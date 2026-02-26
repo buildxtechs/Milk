@@ -45,6 +45,10 @@ function FinanceContent() {
     const filtered = advances.filter(a => {
         const customer = getCustomer(a.customerId);
         return !search || customer?.name.toLowerCase().includes(search.toLowerCase()) || customer?.village.toLowerCase().includes(search.toLowerCase());
+    }).sort((a, b) => {
+        if (a.remainingBalance === 0 && b.remainingBalance !== 0) return 1;
+        if (a.remainingBalance !== 0 && b.remainingBalance === 0) return -1;
+        return b.remainingBalance - a.remainingBalance;
     });
 
     const totalOutstanding = advances.reduce((s, a) => s + a.remainingBalance, 0);
@@ -145,7 +149,7 @@ function FinanceContent() {
                                     const recovered = a.amount - a.remainingBalance;
                                     const progress = a.amount > 0 ? (recovered / a.amount) * 100 : 0;
                                     return (
-                                        <tr key={a.id}>
+                                        <tr key={a.id} className={a.remainingBalance === 0 ? 'print-hide' : ''}>
                                             <td style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--primary)' }}>{a.id}</td>
                                             <td
                                                 style={{ fontWeight: 600, cursor: 'pointer', color: 'var(--primary)', textDecoration: 'underline' }}
@@ -234,6 +238,13 @@ function FinanceContent() {
                     initialCustomerId={preselectedId || (search.startsWith('CUST-') ? search : undefined)}
                 />
             )}
+
+            <style jsx>{`
+                @media print {
+                    .no-print { display: none !important; }
+                    .print-hide { display: none !important; }
+                }
+            `}</style>
         </div>
     );
 }

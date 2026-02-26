@@ -226,103 +226,106 @@ export default function CustomersPage() {
                                     </td>
                                 </tr>
                             ) : (
-                                filtered.map((c, index) => (
-                                    <tr key={c.id}>
-                                        <td style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600, color: 'var(--primary)' }}>{c.id}</td>
-                                        <td style={{ fontWeight: 600 }}>{c.name}</td>
-                                        <td>{c.village}</td>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <Phone size={12} style={{ color: 'var(--text-muted)' }} />
-                                                {c.mobile}
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span className="badge badge-green">
-                                                {c.cattleType === 'cow' ? t.cow : c.cattleType === 'buffalo' ? t.buffalo : t.mixed}
-                                            </span>
-                                        </td>
-                                        <td>{c.numberOfCattle}</td>
-                                        <td>
-                                            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>₹</span>
-                                                <input
-                                                    type="number"
-                                                    className="form-control"
-                                                    data-index={index}
-                                                    data-field="amount-provided"
-                                                    style={{ width: '100px', height: '32px', padding: '0 8px', fontSize: '13px' }}
-                                                    defaultValue={advances.filter(a => a.customerId === c.id).reduce((sum, a) => sum + a.amount, 0)}
-                                                    onBlur={(e) => {
-                                                        const newVal = Number(e.target.value);
-                                                        const customerAdvances = advances.filter(a => a.customerId === c.id);
+                                filtered.map((c, index) => {
+                                    const totalBalance = advances.filter(adv => adv.customerId === c.id).reduce((s, adv) => s + adv.remainingBalance, 0);
+                                    return (
+                                        <tr key={c.id} className={totalBalance === 0 ? 'print-hide' : ''}>
+                                            <td style={{ fontFamily: 'monospace', fontSize: '12px', fontWeight: 600, color: 'var(--primary)' }}>{c.id}</td>
+                                            <td style={{ fontWeight: 600 }}>{c.name}</td>
+                                            <td>{c.village}</td>
+                                            <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <Phone size={12} style={{ color: 'var(--text-muted)' }} />
+                                                    {c.mobile}
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span className="badge badge-green">
+                                                    {c.cattleType === 'cow' ? t.cow : c.cattleType === 'buffalo' ? t.buffalo : t.mixed}
+                                                </span>
+                                            </td>
+                                            <td>{c.numberOfCattle}</td>
+                                            <td>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>₹</span>
+                                                    <input
+                                                        type="number"
+                                                        className="form-control"
+                                                        data-index={index}
+                                                        data-field="amount-provided"
+                                                        style={{ width: '100px', height: '32px', padding: '0 8px', fontSize: '13px' }}
+                                                        defaultValue={advances.filter(a => a.customerId === c.id).reduce((sum, a) => sum + a.amount, 0)}
+                                                        onBlur={(e) => {
+                                                            const newVal = Number(e.target.value);
+                                                            const customerAdvances = advances.filter(a => a.customerId === c.id);
 
-                                                        if (customerAdvances.length > 0) {
-                                                            // For simplicity in this direct edit, we update the first advance 
-                                                            // or adjust the first one to match the total if they want to manage it this way.
-                                                            // Usually, "Amount Provided" in this context refers to their initial/total credit.
-                                                            const firstAdv = customerAdvances[0];
-                                                            if (firstAdv.amount !== newVal) {
-                                                                const diff = newVal - firstAdv.amount;
-                                                                updateAdvance(firstAdv.id, {
+                                                            if (customerAdvances.length > 0) {
+                                                                // For simplicity in this direct edit, we update the first advance 
+                                                                // or adjust the first one to match the total if they want to manage it this way.
+                                                                // Usually, "Amount Provided" in this context refers to their initial/total credit.
+                                                                const firstAdv = customerAdvances[0];
+                                                                if (firstAdv.amount !== newVal) {
+                                                                    const diff = newVal - firstAdv.amount;
+                                                                    updateAdvance(firstAdv.id, {
+                                                                        amount: newVal,
+                                                                        remainingBalance: Math.max(0, firstAdv.remainingBalance + diff)
+                                                                    });
+                                                                }
+                                                            } else if (newVal > 0) {
+                                                                const newAdvId = generateAdvanceId(advances.map(a => a.id));
+                                                                addAdvance({
+                                                                    id: newAdvId,
+                                                                    customerId: c.id,
+                                                                    date: todayStr(),
                                                                     amount: newVal,
-                                                                    remainingBalance: Math.max(0, firstAdv.remainingBalance + diff)
+                                                                    remainingBalance: newVal,
+                                                                    monthlyDeduction: 0,
+                                                                    notes: 'Added via inline edit',
+                                                                    createdAt: new Date().toISOString()
                                                                 });
                                                             }
-                                                        } else if (newVal > 0) {
-                                                            const newAdvId = generateAdvanceId(advances.map(a => a.id));
-                                                            addAdvance({
-                                                                id: newAdvId,
-                                                                customerId: c.id,
-                                                                date: todayStr(),
-                                                                amount: newVal,
-                                                                remainingBalance: newVal,
-                                                                monthlyDeduction: 0,
-                                                                notes: 'Added via inline edit',
-                                                                createdAt: new Date().toISOString()
-                                                            });
-                                                        }
-                                                    }}
-                                                    onKeyDown={(e: any) => {
-                                                        if (e.key === 'Enter') {
-                                                            e.preventDefault();
-                                                            const nextEl = document.querySelector(`input[data-field="amount-provided"][data-index="${index + 1}"]`) as HTMLInputElement;
-                                                            if (nextEl) {
-                                                                nextEl.focus();
-                                                                nextEl.select();
-                                                            } else {
-                                                                e.target.blur();
+                                                        }}
+                                                        onKeyDown={(e: any) => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                const nextEl = document.querySelector(`input[data-field="amount-provided"][data-index="${index + 1}"]`) as HTMLInputElement;
+                                                                if (nextEl) {
+                                                                    nextEl.focus();
+                                                                    nextEl.select();
+                                                                } else {
+                                                                    e.target.blur();
+                                                                }
                                                             }
-                                                        }
-                                                    }}
-                                                />
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <span className={`badge ${c.status === 'active' ? 'badge-green' : 'badge-gray'}`}>
-                                                {c.status === 'active' ? t.active : t.inactive}
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <div style={{ display: 'flex', gap: '4px' }}>
-                                                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setViewingCustomer(c)} title={t.view}>
-                                                    <Eye size={14} />
-                                                </button>
-                                                <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--primary)' }} onClick={() => {
-                                                    router.push(`/finance?search=${c.id}`);
-                                                }} title={t.addAmount}>
-                                                    <Wallet size={16} />
-                                                </button>
-                                                <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEditingCustomer(c); setShowModal(true); }} title={t.edit}>
-                                                    <Edit2 size={14} />
-                                                </button>
-                                                <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(c.id)} title={t.delete}>
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))
+                                                        }}
+                                                    />
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <span className={`badge ${c.status === 'active' ? 'badge-green' : 'badge-gray'}`}>
+                                                    {c.status === 'active' ? t.active : t.inactive}
+                                                </span>
+                                            </td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '4px' }}>
+                                                    <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setViewingCustomer(c)} title={t.view}>
+                                                        <Eye size={14} />
+                                                    </button>
+                                                    <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--primary)' }} onClick={() => {
+                                                        router.push(`/finance?search=${c.id}`);
+                                                    }} title={t.addAmount}>
+                                                        <Wallet size={16} />
+                                                    </button>
+                                                    <button className="btn btn-ghost btn-sm btn-icon" onClick={() => { setEditingCustomer(c); setShowModal(true); }} title={t.edit}>
+                                                        <Edit2 size={14} />
+                                                    </button>
+                                                    <button className="btn btn-ghost btn-sm btn-icon" style={{ color: 'var(--danger)' }} onClick={() => handleDelete(c.id)} title={t.delete}>
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })
                             )}
                         </tbody>
                     </table>
@@ -351,6 +354,13 @@ export default function CustomersPage() {
                     onClose={() => setViewingCustomer(null)}
                 />
             )}
+
+            <style jsx>{`
+                @media print {
+                    .no-print { display: none !important; }
+                    .print-hide { display: none !important; }
+                }
+            `}</style>
         </div>
     );
 }
