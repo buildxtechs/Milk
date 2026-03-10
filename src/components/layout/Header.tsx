@@ -10,7 +10,7 @@ interface HeaderProps {
     onMenuClick?: () => void;
 }
 
-export default function Header({ title }: HeaderProps) {
+export default function Header({ title, onMenuClick }: HeaderProps) {
     const language = useStore((s) => s.language);
     const setLanguage = useStore((s) => s.setLanguage);
     const user = useStore((s) => s.user);
@@ -30,6 +30,13 @@ export default function Header({ title }: HeaderProps) {
     return (
         <header className="header">
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <button
+                    className="btn btn-ghost btn-icon no-print"
+                    onClick={onMenuClick}
+                    style={{ marginLeft: '-8px' }}
+                >
+                    <Menu size={20} />
+                </button>
                 <div>
                     <h2 className="header-title">{title}</h2>
                 </div>

@@ -76,9 +76,23 @@ body.lang-ta {
     top: 0;
     left: 0;
     height: 100vh;
-    z-index: 100;
+    z-index: 1000;
     overflow-y: auto;
     border-right: 1px solid rgba(255, 255, 255, 0.05);
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.sidebar.collapsed {
+    transform: translateX(-100%);
+}
+
+.sidebar-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(2px);
+    z-index: 900;
+    animation: fadeIn 0.2s ease;
 }
 
 .sidebar-logo {
@@ -167,6 +181,11 @@ body.lang-ta {
     display: flex;
     flex-direction: column;
     min-height: 100vh;
+    transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.main-content.expanded {
+    margin-left: 0;
 }
 
 .header {
@@ -741,17 +760,58 @@ tbody tr:hover {
     transition: width 0.3s ease;
 }
 
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 1024px) {
+    :root {
+        --sidebar-width: 260px;
+    }
+
+    .sidebar {
+        transform: translateX(-100%);
+    }
+
+    .sidebar.open {
+        transform: translateX(0);
+    }
+
+    .main-content {
+        margin-left: 0 !important;
+    }
+    
+    .header {
+        padding: 0 16px;
+    }
+}
+
+@media (max-width: 640px) {
+    .form-grid, .form-grid-3 {
+        grid-template-columns: 1fr;
+    }
+    
+    .page-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 12px;
+    }
+    
+    .page-header .btn {
+        width: 100%;
+        justify-content: center;
+    }
+}
+
 /* ── Print Styles ──────────────────────────────────────────── */
 @media print {
-
     .sidebar,
     .header,
-    .no-print {
+    .no-print,
+    .sidebar-overlay {
         display: none !important;
     }
 
     .main-content {
         margin-left: 0 !important;
+        padding: 0 !important;
     }
 
     .print-area {
@@ -760,12 +820,12 @@ tbody tr:hover {
 
     body {
         background: white;
-        font-size: 12px;
+        font-size: 11px;
     }
 
     .card {
         box-shadow: none;
-        border: 1px solid #ccc;
+        border: 1px solid #eee;
     }
 }
 

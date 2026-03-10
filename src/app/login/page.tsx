@@ -75,7 +75,7 @@ export default function LoginPage() {
                                         type="text"
                                         value={username}
                                         onChange={(e) => setUsername(e.target.value)}
-                                        placeholder="e.g. admin"
+                                        placeholder={language === 'ta' ? 'பயனர்பெயர்' : 'Username'}
                                         required
                                     />
                                 </div>
@@ -122,9 +122,6 @@ export default function LoginPage() {
                                 <span className="divider"></span>
                                 <button className={language === 'ta' ? 'active' : ''} onClick={() => setLanguage('ta')}>தமிழ்</button>
                             </div>
-                            <p className="hint">
-                                {language === 'ta' ? 'நிர்வாக அணுகல்: admin / admin' : 'Admin access: admin / admin'}
-                            </p>
                         </div>
                     </div>
                 </div>

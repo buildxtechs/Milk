@@ -1,11 +1,18 @@
-import { Customer, Product, Transaction, Advance, StockInward, MonthlySummary } from './types';
+import { Transaction, ShopSettings, Advance, ExternalDeduction } from './types';
+import { translations } from './translations';
 import { format, parseISO, startOfMonth, endOfMonth, isWithinInterval, addDays } from 'date-fns';
 
 // ── ID Generation ─────────────────────────────────────────────
+export function normalizeCustomerId(id: string | number): string {
+    const numPart = String(id).replace(/\D/g, '');
+    const num = parseInt(numPart, 10);
+    if (isNaN(num)) return String(id);
+    return `CUST-${String(num).padStart(3, '0')}`;
+}
+
 export function generateCustomerId(existingIds: string[]): string {
     const nums = existingIds
-        .filter(id => id.startsWith('CUST-'))
-        .map(id => parseInt(id.replace('CUST-', ''), 10))
+        .map(id => parseInt(String(id).replace(/\D/g, ''), 10))
         .filter(n => !isNaN(n));
     const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
     return `CUST-${String(next).padStart(3, '0')}`;
@@ -41,6 +48,15 @@ export function generateAdvanceId(existingIds: string[]): string {
 
 export function generateStockInwardId(): string {
     return `STK-${Date.now()}`;
+}
+
+export function generateExternalDeductionId(existingIds: string[]): string {
+    const nums = existingIds
+        .filter(id => id.startsWith('DED-'))
+        .map(id => parseInt(id.replace('DED-', ''), 10))
+        .filter(n => !isNaN(n));
+    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    return `DED-${String(next).padStart(4, '0')}`;
 }
 
 // ── Date Helpers ──────────────────────────────────────────────
@@ -90,7 +106,7 @@ export function getMonthlySummary(
     customerId: string,
     month: string,
     transactions: Transaction[]
-): MonthlySummary {
+): { customerId: string; month: string; totalSpent: number; transactions: Transaction[]; } { // Changed MonthlySummary to its type definition
     const monthStart = startOfMonth(parseISO(`${month}-01`));
     const monthEnd = endOfMonth(parseISO(`${month}-01`));
 
@@ -181,6 +197,60 @@ export function parseTemplate(template: string, tokens: Record<string, string | 
     });
     return result;
 }
+
+/**
+ * Calculates a customer's total outstanding balance (debt).
+ * Formula: Sum of remaining advance balances - Sum of unprocessed external deductions.
+ */
+export const calculateCustomerBalance = (
+    customerId: string,
+    advances: Advance[],
+    externalDeductions: ExternalDeduction[] = []
+): number => {
+    const totalAdvances = advances
+        .filter(a => a.customerId === customerId)
+        .reduce((sum, a) => sum + a.remainingBalance, 0);
+
+    const totalUnprocessedDeductions = externalDeductions
+        .filter(d => d.customerId === customerId && !d.isProcessed)
+        .reduce((sum, d) => sum + d.amount, 0);
+
+    return Math.max(0, totalAdvances - totalUnprocessedDeductions);
+};
+
+export function generatePOSWhatsAppMessage(
+    txn: Transaction,
+    customerName: string,
+    oldBalance: number,
+    currentBalance: number,
+    settings: ShopSettings
+): string {
+    const t = translations['ta'];
+    const productList = txn.items.map((item, i) =>
+        `   ${i + 1}. ${item.productName} x ${item.quantity} @ ${formatCurrency(item.unitPrice)} = ${formatCurrency(item.total)}`
+    ).join('\n');
+
+    return `*🏪 ${settings.shopName}*\n` +
+        `━━━━━━━━━━━━━━━━━\n\n` +
+        `வணக்கம் *${customerName}* 🙏\n` +
+        `உங்கள் கொள்முதலுக்கு நன்றி!\n\n` +
+        `📋 *கொள்முதல் விவரம்*\n` +
+        `━━━━━━━━━━━━━━━━━\n` +
+        `📅 தேதி: ${formatDate(txn.date)}\n\n` +
+        `🛒 *எடுத்த பொருட்கள்:*\n` +
+        `${productList}\n\n` +
+        `━━━━━━━━━━━━━━━━━\n` +
+        `💰 *கணக்கு விவரம்*\n` +
+        `━━━━━━━━━━━━━━━━━\n` +
+        `▪️ பழைய இருப்பு       : ${formatCurrency(oldBalance)}\n` +
+        `▪️ கொள்முதல் (+)      : ${formatCurrency(txn.totalAmount)}\n` +
+        `━━━━━━━━━━━━━━━━━\n` +
+        `✅ *தற்போதைய இருப்பு : ${formatCurrency(currentBalance)}*\n` +
+        `━━━━━━━━━━━━━━━━━\n\n` +
+        `🙏 நன்றி! மீண்டும் வாங்க வாருங்கள்.\n` +
+        (settings.mobile ? `📞 தொடர்புக்கு: ${settings.mobile}` : '');
+}
+
 
 // ── Clamp ─────────────────────────────────────────────────────
 export function clamp(value: number, min: number, max: number): number {

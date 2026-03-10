@@ -37,9 +37,10 @@ export default function MemberSummaryPage() {
         row.id.toLowerCase().includes(search.toLowerCase()) ||
         row.village.toLowerCase().includes(search.toLowerCase())
     ).sort((a, b) => {
-        if (a.currentBalance === 0 && b.currentBalance !== 0) return 1;
-        if (a.currentBalance !== 0 && b.currentBalance === 0) return -1;
-        return b.currentBalance - a.currentBalance;
+        const hasBalA = a.currentBalance > 0 ? 1 : 0;
+        const hasBalB = b.currentBalance > 0 ? 1 : 0;
+        if (hasBalA !== hasBalB) return hasBalB - hasBalA;
+        return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
 
     return (

@@ -13,6 +13,7 @@ const pageTitles: Record<string, { en: string; ta: string }> = {
     '/': { en: 'Dashboard', ta: 'டாஷ்போர்டு' },
     '/customers': { en: 'Customers', ta: 'வாடிக்கையாளர்கள்' },
     '/customers/credits': { en: 'Amount Credits', ta: 'தொகை வரவுகள்' },
+    '/customers/whatsapp': { en: 'WhatsApp Share', ta: 'வாட்ஸ்அப் பகிர்வு' },
     '/milk': { en: 'Milk Collection', ta: 'பால் சேகரிப்பு' },
     '/theevanam': { en: 'Theevanam', ta: 'தீவனம்' },
     '/products': { en: 'Products', ta: 'பொருட்கள்' },
@@ -47,6 +48,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             return;
         }
 
+        // Close sidebar on route change (for mobile)
+        setSidebarOpen(false);
+
         // Monthly Reset check
         if (isAuthenticated) {
             const currentMonth = new Date().toISOString().substring(0, 7);
@@ -71,9 +75,10 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     return (
         <div className={`app-layout ${language === 'ta' ? 'lang-ta' : ''}`}>
             <SyncManager />
-            <Sidebar />
-            <div className="main-content">
-                <Header title={title} />
+            {sidebarOpen && <div className="sidebar-overlay no-print" onClick={() => setSidebarOpen(false)} />}
+            <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+            <div className={`main-content ${!sidebarOpen ? 'expanded' : ''}`}>
+                <Header title={title} onMenuClick={() => setSidebarOpen(!sidebarOpen)} />
                 <main className="page-content">
                     {children}
                 </main>

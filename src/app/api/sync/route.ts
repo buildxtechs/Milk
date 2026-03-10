@@ -44,7 +44,7 @@ export async function POST(req: Request) {
 
             try {
                 if (action === 'upsert') {
-                    await Model.findOneAndUpdate({ id: data.id }, data, { upsert: true, new: true });
+                    await Model.findOneAndUpdate({ id: data.id }, data, { upsert: true, returnDocument: 'after' });
                     results.push({ id: data.id, status: 'success' });
                 } else if (action === 'delete') {
                     await Model.deleteOne({ id });

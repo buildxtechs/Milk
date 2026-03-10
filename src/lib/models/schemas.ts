@@ -95,6 +95,7 @@ const ExternalDeductionSchema = new Schema({
     customerId: { type: String, required: true },
     amount: { type: Number, required: true },
     reason: { type: String, required: true },
+    isProcessed: { type: Boolean, default: false },
     date: { type: String, required: true },
     createdAt: { type: String, required: true }
 });

@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react';
 import { useStore, useCustomers, useTransactions, useAdvances, usePayouts, useExternalDeductions } from '@/lib/store';
 import { translations } from '@/lib/translations';
 import { formatDate, formatCurrency } from '@/lib/utils';
-import { Search, Printer, FileText, ShoppingCart, Wallet, ArrowDownCircle, MinusCircle } from 'lucide-react';
+import { Search, Printer, FileText, ShoppingCart, Wallet, ArrowDownCircle, MinusCircle, Trash2 } from 'lucide-react';
 
 export default function AuditPage() {
     const language = useStore((s) => s.language);
@@ -14,6 +14,10 @@ export default function AuditPage() {
     const advances = useAdvances();
     const payouts = usePayouts();
     const deductions = useExternalDeductions();
+    const deleteTransaction = useStore((s) => s.deleteTransaction);
+    const deleteAdvance = useStore((s) => s.deleteAdvance);
+    const deletePayout = useStore((s) => s.deletePayout);
+    const deleteExternalDeduction = useStore((s) => s.deleteExternalDeduction);
 
     const [search, setSearch] = useState('');
 
@@ -87,6 +91,25 @@ export default function AuditPage() {
 
     const getCustomerName = (id: string) => customers.find(c => c.id === id)?.name || id;
 
+    const handleDelete = (item: any) => {
+        if (!confirm(t.deleteConfirm)) return;
+
+        switch (item.type) {
+            case 'addition':
+                deleteAdvance(item.id);
+                break;
+            case 'deduction':
+                deleteTransaction(item.id);
+                break;
+            case 'payout':
+                deletePayout(item.id);
+                break;
+            case 'external_deduction':
+                deleteExternalDeduction(item.id);
+                break;
+        }
+    };
+
     return (
         <div className="animate-fade-in">
             <div className="page-header">
@@ -154,6 +177,7 @@ export default function AuditPage() {
                                 <th>{t.amount}</th>
                                 <th>{language === 'ta' ? 'இருப்பு' : 'Balance'}</th>
                                 <th>{language === 'ta' ? 'விவரங்கள்' : 'Details'}</th>
+                                <th style={{ textAlign: 'center' }}>{t.actions}</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -193,6 +217,11 @@ export default function AuditPage() {
                                         </td>
                                         <td style={{ fontSize: '12px', maxWidth: '300px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                             {item.details}
+                                        </td>
+                                        <td style={{ textAlign: 'center' }}>
+                                            <button className="btn btn-ghost btn-sm btn-icon text-danger" onClick={() => handleDelete(item)} title={t.delete}>
+                                                <Trash2 size={14} />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))

@@ -17,6 +17,7 @@ export default function PayoutPage() {
     const addPayout = useStore((s) => s.addPayout);
     const addExternalDeduction = useStore((s) => s.addExternalDeduction);
     const deductBalance = useStore((s) => s.deductBalance);
+    const deletePayout = useStore((s) => s.deletePayout);
 
     const [selectedCustomerId, setSelectedCustomerId] = useState('');
     const [tempDeduction, setTempDeduction] = useState({ amount: 0, reason: '' });
@@ -27,9 +28,10 @@ export default function PayoutPage() {
     const activeCustomers = customers.filter(c => c.status === 'active').sort((a, b) => {
         const balanceA = advances.filter(adv => adv.customerId === a.id).reduce((s, adv) => s + adv.remainingBalance, 0);
         const balanceB = advances.filter(adv => adv.customerId === b.id).reduce((s, adv) => s + adv.remainingBalance, 0);
-        if (balanceA === 0 && balanceB !== 0) return 1;
-        if (balanceA !== 0 && balanceB === 0) return -1;
-        return balanceB - balanceA;
+        const hasBalA = balanceA > 0 ? 1 : 0;
+        const hasBalB = balanceB > 0 ? 1 : 0;
+        if (hasBalA !== hasBalB) return hasBalB - hasBalA;
+        return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
     const selectedCustomer = customers.find(c => c.id === selectedCustomerId);
 
@@ -61,6 +63,7 @@ export default function PayoutPage() {
                 customerId: selectedCustomerId,
                 amount: d.amount,
                 reason: d.reason,
+                isProcessed: false,
                 date: todayStr(),
                 createdAt: new Date().toISOString()
             });
@@ -89,6 +92,12 @@ export default function PayoutPage() {
         setSelectedCustomerId('');
 
         setTimeout(() => setPayoutSuccess(false), 3000);
+    };
+
+    const handleDeletePayout = (id: string) => {
+        if (confirm(t.deleteConfirm)) {
+            deletePayout(id);
+        }
     };
 
     return (
@@ -239,7 +248,12 @@ export default function PayoutPage() {
                                             <div key={p.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)' }}>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
                                                     <span style={{ fontWeight: 700, fontSize: '14px' }}>{c?.name}</span>
-                                                    <span style={{ fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(p.netAmount)}</span>
+                                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                        <span style={{ fontWeight: 800, color: 'var(--primary)' }}>{formatCurrency(p.netAmount)}</span>
+                                                        <button className="btn btn-ghost btn-sm btn-icon text-danger" onClick={() => handleDeletePayout(p.id)}>
+                                                            <Trash2 size={12} />
+                                                        </button>
+                                                    </div>
                                                 </div>
                                                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)' }}>
                                                     <span>{formatDate(p.date)}</span>

@@ -7,7 +7,7 @@ import { translations } from '@/lib/translations';
 import {
     LayoutDashboard, Users, Droplets, Leaf, Package, ShoppingCart,
     FileText, Wallet, Archive, BarChart3, X, Settings, Trash2, Download,
-    ArrowDownCircle, Database
+    ArrowDownCircle, Database, Send, History
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -15,7 +15,7 @@ interface SidebarProps {
     onClose?: () => void;
 }
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen, onClose }: SidebarProps) {
     const pathname = usePathname();
     const language = useStore((s) => s.language);
     const settings = useSettings();
@@ -26,7 +26,10 @@ export default function Sidebar() {
         { href: '/pos', icon: ShoppingCart, label: t.pos, section: 'main' },
         { href: '/customers', icon: Users, label: t.customers, section: 'main' },
         { href: '/customers/credits', icon: Wallet, label: t.amountCredits, section: 'main' },
+        { href: '/customers/whatsapp', icon: Send, label: language === 'ta' ? 'வாட்ஸ்அப் பகிர்வு' : 'WhatsApp Share', section: 'main' },
         { href: '/finance', icon: Wallet, label: t.finance, section: 'operations' },
+        { href: '/finance/history', icon: History, label: language === 'ta' ? 'நிதி வரலாறு' : 'Finance History', section: 'operations' },
+        { href: '/pos-transactions', icon: FileText, label: language === 'ta' ? 'POS பரிவர்த்தனைகள்' : 'POS Transactions', section: 'operations' },
         { href: '/invoices', icon: FileText, label: t.invoiceData, section: 'operations' },
         { href: '/audit', icon: Archive, label: t.audit, section: 'operations' },
         { href: '/export', icon: Archive, label: t.exportData, section: 'operations' },
@@ -49,7 +52,15 @@ export default function Sidebar() {
     ];
 
     return (
-        <aside className="sidebar">
+        <aside className={`sidebar ${isOpen ? 'open' : 'collapsed'}`}>
+            <button
+                className="btn btn-ghost btn-icon no-print"
+                style={{ position: 'absolute', top: '12px', right: '12px', color: '#94a3b8', zIndex: 10 }}
+                onClick={onClose}
+            >
+                <X size={20} />
+            </button>
+
             {/* Logo */}
             <div className="sidebar-logo">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>

@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useStore, useCustomers, useProducts, useTransactions, useAdvances, useSettings } from '@/lib/store';
+import { useStore, useCustomers, useProducts, useTransactions, useAdvances, useExternalDeductions, useSettings } from '@/lib/store';
 import { translations } from '@/lib/translations';
 import { Transaction, TransactionItem, PaymentMode } from '@/lib/types';
-import { generateInvoiceId, formatCurrency, todayStr, currentMonthStr, getMonthlyPurchaseCount, getNextEligibleDate, formatDate, generateWhatsAppLink, parseTemplate } from '@/lib/utils';
+import { generateInvoiceId, generateAdvanceId, formatCurrency, todayStr, currentMonthStr, getMonthlyPurchaseCount, getNextEligibleDate, formatDate, generateWhatsAppLink, parseTemplate, generatePOSWhatsAppMessage, calculateCustomerBalance } from '@/lib/utils';
 import { ShoppingCart, Plus, Minus, Trash2, AlertTriangle, CheckCircle, Search, X, Info, Send, Fingerprint } from 'lucide-react';
 import CustomerDetailsModal from '@/components/customers/CustomerDetailsModal';
 import SignaturePad from '@/components/pos/SignaturePad';
@@ -16,7 +16,9 @@ export default function POSPage() {
     const products = useProducts();
     const transactions = useTransactions();
     const advances = useAdvances();
+    const deductions = useExternalDeductions();
     const addTransaction = useStore((s) => s.addTransaction);
+    const addAdvance = useStore((s) => s.addAdvance);
     const updateStock = useStore((s) => s.updateStock);
     const deductBalance = useStore((s) => s.deductBalance);
     const settings = useSettings();
@@ -38,13 +40,15 @@ export default function POSPage() {
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
     const [budget, setBudget] = useState(0);
+    const [saleDate, setSaleDate] = useState(todayStr());
 
     const activeCustomers = customers.filter(c => c.status === 'active').sort((a, b) => {
-        const balanceA = advances.filter(adv => adv.customerId === a.id).reduce((s, adv) => s + adv.remainingBalance, 0);
-        const balanceB = advances.filter(adv => adv.customerId === b.id).reduce((s, adv) => s + adv.remainingBalance, 0);
-        if (balanceA === 0 && balanceB !== 0) return 1;
-        if (balanceA !== 0 && balanceB === 0) return -1;
-        return balanceB - balanceA;
+        const balanceA = calculateCustomerBalance(a.id, advances, deductions);
+        const balanceB = calculateCustomerBalance(b.id, advances, deductions);
+        const hasBalA = balanceA > 0 ? 1 : 0;
+        const hasBalB = balanceB > 0 ? 1 : 0;
+        if (hasBalA !== hasBalB) return hasBalB - hasBalA;
+        return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
     const filteredCustomers = customerSearch.trim() === ''
         ? activeCustomers.slice(0, 10)
@@ -62,8 +66,7 @@ export default function POSPage() {
     const isLimitReached = purchaseCount >= settings.maxPurchasesPerMonth;
     const nextEligible = selectedCustomerId ? getNextEligibleDate(selectedCustomerId, transactions) : '';
 
-    const customerAdvances = advances.filter(a => a.customerId === selectedCustomerId && a.remainingBalance > 0);
-    const totalBalance = customerAdvances.reduce((s, a) => s + a.remainingBalance, 0);
+    const totalBalance = calculateCustomerBalance(selectedCustomerId || '', advances, deductions);
 
     // Filtered products
     const filteredProducts = products.filter(p => {
@@ -116,24 +119,34 @@ export default function POSPage() {
         if (cart.length === 0) { showToast(language === 'ta' ? 'கார்ட் காலியாக உள்ளது' : 'Cart is empty'); return; }
         if (isLimitReached) { showToast(t.purchaseLimitMsg); return; }
 
-        // Logic for advance usage
         let advanceUsed = 0;
         if (paymentMode === 'advance') {
-            advanceUsed = Math.min(totalBalance, grandTotal);
-            deductBalance(selectedCustomerId, advanceUsed);
+            advanceUsed = grandTotal;
+            // Instead of deducting, we add to the customer's balance (debt)
+            const advId = generateAdvanceId(advances.map(a => a.id));
+            addAdvance({
+                id: advId,
+                customerId: selectedCustomerId,
+                date: saleDate,
+                amount: grandTotal,
+                remainingBalance: grandTotal,
+                notes: `POS Purchase: ${generateInvoiceId(transactions.map(t => t.id))}`,
+                createdAt: new Date().toISOString()
+            });
         }
 
         const txn: Transaction = {
             id: generateInvoiceId(transactions.map(t => t.id)),
             customerId: selectedCustomerId,
-            date: todayStr(),
+            date: saleDate,
             items: cart,
             subtotal,
             discount,
             totalAmount: grandTotal,
             budgetProvided: budget > 0 ? budget : undefined,
             advanceUsed: advanceUsed > 0 ? advanceUsed : undefined,
-            balanceDue: (grandTotal - (budget > 0 ? budget : 0) - advanceUsed) > 0 ? (grandTotal - (budget > 0 ? budget : 0) - advanceUsed) : 0,
+            balanceDue: (grandTotal - (budget > 0 ? budget : 0) - (paymentMode === 'advance' ? advanceUsed : 0)) > 0
+                ? (grandTotal - (budget > 0 ? budget : 0) - (paymentMode === 'advance' ? advanceUsed : 0)) : 0,
             paymentMode,
             validationMethod: method || validationMethod,
             signature,
@@ -144,6 +157,17 @@ export default function POSPage() {
         addTransaction(txn);
         // Update stock
         cart.forEach(item => updateStock(item.productId, -item.quantity));
+
+        // Auto-send WhatsApp message if customer has WhatsApp
+        if (selectedCustomer?.whatsapp) {
+            const currentBal = calculateCustomerBalance(selectedCustomerId, advances, deductions);
+            const oldBal = currentBal - txn.totalAmount;
+            const msg = generatePOSWhatsAppMessage(txn, selectedCustomer.name, oldBal, currentBal, settings);
+
+            setTimeout(() => {
+                window.open(generateWhatsAppLink(selectedCustomer?.whatsapp || '', msg), '_blank');
+            }, 1000);
+        }
 
         setSaleSuccess(txn);
         setNotes('');
@@ -385,17 +409,15 @@ export default function POSPage() {
 
                         {cart.length > 0 && (
                             <div style={{ padding: '16px', borderTop: '1px solid var(--border)' }}>
-                                {/* Discount */}
+                                {/* Sale Date */}
                                 <div className="form-group">
-                                    <label className="form-label">{t.discount}</label>
+                                    <label className="form-label">{t.date}</label>
                                     <input
                                         className="form-input"
-                                        type="number"
-                                        min={0}
-                                        value={discount === 0 ? '' : discount}
-                                        onChange={e => setDiscount(e.target.value === '' ? 0 : Number(e.target.value))}
-                                        onFocus={e => e.target.select()}
-                                        placeholder="0"
+                                        type="date"
+                                        value={saleDate}
+                                        onChange={e => setSaleDate(e.target.value)}
+                                        style={{ fontWeight: 600 }}
                                     />
                                 </div>
 
@@ -404,7 +426,7 @@ export default function POSPage() {
                                     <label className="form-label">{t.paymentMode}</label>
                                     <select className="form-select" value={paymentMode} onChange={e => setPaymentMode(e.target.value as PaymentMode)}>
                                         <option value="cash">{t.cash}</option>
-                                        <option value="advance" disabled={totalBalance <= 0}>{t.advanceDeduction} ({formatCurrency(totalBalance)})</option>
+                                        <option value="advance" disabled={totalBalance <= 0}>{language === 'ta' ? 'கணக்கில் சேர்க்க (Credit)' : 'Add to Account (Credit)'} ({formatCurrency(totalBalance)})</option>
                                     </select>
                                 </div>
 
@@ -523,7 +545,7 @@ export default function POSPage() {
                                 </div>
                                 <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
                                     <span className={`badge ${saleSuccess.paymentMode === 'cash' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '13px', padding: '6px 12px' }}>
-                                        {saleSuccess.paymentMode === 'cash' ? t.cash : t.advanceDeduction}
+                                        {saleSuccess.paymentMode === 'cash' ? t.cash : (language === 'ta' ? 'கணக்கில் சேர்க்கப்பட்டது (Credit)' : 'Added to Account (Credit)')}
                                     </span>
                                 </div>
                                 {selectedCustomer?.whatsapp && (
@@ -531,14 +553,11 @@ export default function POSPage() {
                                         className="btn btn-secondary w-full"
                                         style={{ marginTop: '16px', color: '#25D366', borderColor: '#25D366' }}
                                         onClick={() => {
-                                            const msg = parseTemplate(settings.whatsappInvoiceTemplate, {
-                                                name: selectedCustomer?.name || '',
-                                                invoice: saleSuccess.id,
-                                                total: saleSuccess.totalAmount,
-                                                advance: saleSuccess.advanceUsed || 0,
-                                                balance: saleSuccess.balanceDue || 0
-                                            });
-                                            window.open(generateWhatsAppLink(selectedCustomer?.whatsapp || '', msg), '_blank');
+                                            const currentBal = calculateCustomerBalance(saleSuccess.customerId, advances, deductions);
+                                            const oldBal = currentBal - saleSuccess.totalAmount;
+                                            const customer = customers.find(c => c.id === saleSuccess.customerId);
+                                            const msg = generatePOSWhatsAppMessage(saleSuccess, customer?.name || '', oldBal, currentBal, settings);
+                                            window.open(generateWhatsAppLink(customer?.whatsapp || '', msg), '_blank');
                                         }}
                                     >
                                         <Send size={16} /> {t.sendToWhatsapp}

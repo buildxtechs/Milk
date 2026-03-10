@@ -1,17 +1,18 @@
 'use client';
 
-import { useState } from 'react';
-import { useStore, useCustomers, useAdvances } from '@/lib/store';
+import { useState, useMemo } from 'react';
+import { useStore, useCustomers, useAdvances, useExternalDeductions } from '@/lib/store';
 import { translations, Translations } from '@/lib/translations';
 import { Advance, Customer } from '@/lib/types';
-import { generateAdvanceId, formatDate, formatCurrency, todayStr, generateWhatsAppLink, parseTemplate } from '@/lib/utils';
-import { Plus, Search, Wallet, X, Clock, User, ArrowUpCircle, CalendarDays } from 'lucide-react';
+import { generateAdvanceId, formatDate, formatCurrency, todayStr, generateWhatsAppLink, parseTemplate, calculateCustomerBalance, generateExternalDeductionId } from '@/lib/utils';
+import { Plus, Search, Wallet, X, Clock, User, ArrowUpCircle, CalendarDays, Edit2, Trash2 } from 'lucide-react';
 
 export default function AmountCreditsPage() {
     const language = useStore((s) => s.language);
     const t = translations[language];
     const customers = useCustomers();
     const advances = useAdvances();
+    const deductions = useExternalDeductions();
     const addAdvance = useStore((s) => s.addAdvance);
     const updateAdvance = useStore((s) => s.updateAdvance);
     const settings = useStore((s) => s.settings);
@@ -20,6 +21,10 @@ export default function AmountCreditsPage() {
     const [showModal, setShowModal] = useState(false);
     const [viewingHistory, setViewingHistory] = useState<string | null>(null);
     const [toast, setToast] = useState('');
+    const [inlineAmounts, setInlineAmounts] = useState<Record<string, string>>({});
+    const [creditAmount, setCreditAmount] = useState('');
+    const [creditNotes, setCreditNotes] = useState('');
+    const [selectedCustomerForCredit, setSelectedCustomerForCredit] = useState<Customer | null>(null);
 
     const showToast = (msg: string) => {
         setToast(msg);
@@ -39,7 +44,11 @@ export default function AmountCreditsPage() {
             ? customerAdvances.slice(1).reduce((sum, a) => sum + a.amount, 0)
             : 0;
 
-        const currentBalance = customerAdvances.reduce((sum, a) => sum + a.remainingBalance, 0);
+        const externalDeductionAmount = deductions
+            .filter(d => d.customerId === customer.id && !d.isProcessed)
+            .reduce((sum, d) => sum + d.amount, 0);
+
+        const currentBalance = calculateCustomerBalance(customer.id, advances, deductions);
 
         // Find last credit date
         const lastCreditDate = customerAdvances.length > 0
@@ -50,6 +59,7 @@ export default function AmountCreditsPage() {
             ...customer,
             initialAmount,
             addedAmount,
+            externalDeductionAmount,
             currentBalance,
             lastCreditDate
         };
@@ -58,51 +68,72 @@ export default function AmountCreditsPage() {
         c.id.toLowerCase().includes(search.toLowerCase()) ||
         c.village.toLowerCase().includes(search.toLowerCase())
     ).sort((a, b) => {
-        // Sort by balance: highest first, zeros at bottom
-        if (a.currentBalance === 0 && b.currentBalance !== 0) return 1;
-        if (a.currentBalance !== 0 && b.currentBalance === 0) return -1;
-        return b.currentBalance - a.currentBalance;
+        const hasBalA = a.currentBalance > 0 ? 1 : 0;
+        const hasBalB = b.currentBalance > 0 ? 1 : 0;
+        if (hasBalA !== hasBalB) return hasBalB - hasBalA;
+        return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
 
-    const handleSaveCredit = (data: Omit<Advance, 'id' | 'createdAt'>) => {
-        const id = generateAdvanceId(advances.map(a => a.id));
-        addAdvance({
-            ...data,
-            id,
+    const addExternalDeduction = useStore((s) => s.addExternalDeduction);
+
+    // Handle inline direct credit
+    const handleInlineCredit = (customerId: string, amount: number) => {
+        if (amount <= 0) return;
+
+        const dedId = generateExternalDeductionId(deductions.map(d => d.id));
+        addExternalDeduction({
+            id: dedId,
+            customerId,
+            amount,
+            reason: 'Added Credit (via Credits Page)',
+            isProcessed: false,
+            date: todayStr(),
             createdAt: new Date().toISOString()
         });
-        showToast(t.savedSuccess);
 
-        // Optional: WhatsApp Notification
-        const customer = getCustomer(data.customerId);
+        showToast(language === 'ta' ? 'தொகை கழிக்கப்பட்டது' : 'Amount added to deductions');
+        setInlineAmounts(prev => ({ ...prev, [customerId]: '' }));
+    };
+
+    // Handle save credit from modal
+    const handleSaveCredit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedCustomerForCredit || !creditAmount || Number(creditAmount) <= 0) return;
+
+        const amount = Number(creditAmount);
+        const dedId = generateExternalDeductionId(deductions.map(d => d.id));
+
+        addExternalDeduction({
+            id: dedId,
+            customerId: selectedCustomerForCredit.id,
+            amount,
+            reason: creditNotes || 'Added Credit (via Credits Page)',
+            isProcessed: false,
+            date: todayStr(),
+            createdAt: new Date().toISOString()
+        });
+
+        showToast(language === 'ta' ? 'தொகை கழிக்கப்பட்டது' : 'Amount added to deductions');
+        setShowModal(false); // Changed from setShowCreditModal
+        setCreditAmount('');
+        setCreditNotes('');
+        setSelectedCustomerForCredit(null);
+
+        // Optional: WhatsApp Notification (adapted from original logic)
+        const customer = getCustomer(selectedCustomerForCredit.id);
         if (customer && customer.whatsapp) {
-            const customerAdvances = advances.filter(a => a.customerId === data.customerId);
-            const newTotalBalance = customerAdvances.reduce((s, a) => s + a.remainingBalance, 0) + data.amount;
+            const currentTotalBalance = calculateCustomerBalance(customer.id, advances, deductions);
+            const newTotalBalance = Math.max(0, currentTotalBalance - amount); // amount is the credit being added
+
             const msg = parseTemplate(settings.whatsappAmountTemplate, {
                 name: customer.name,
-                amount: data.amount,
+                amount: amount,
                 balance: newTotalBalance
             });
             window.open(generateWhatsAppLink(customer.whatsapp, msg), '_blank');
         }
 
         setShowModal(false);
-    };
-
-    // Handle inline direct credit
-    const handleInlineCredit = (customerId: string, amount: number) => {
-        if (amount <= 0) return;
-        const id = generateAdvanceId(advances.map(a => a.id));
-        addAdvance({
-            id,
-            customerId,
-            date: todayStr(),
-            amount,
-            remainingBalance: amount,
-            notes: 'Direct credit',
-            createdAt: new Date().toISOString()
-        });
-        showToast(`₹${amount} ${language === 'ta' ? 'சேர்க்கப்பட்டது' : 'credited successfully'}`);
     };
 
     return (
@@ -156,6 +187,7 @@ export default function AmountCreditsPage() {
                                 <th>{t.village}</th>
                                 <th>{t.initialAmount} (₹)</th>
                                 <th>{t.addedAmount} (₹)</th>
+                                <th>{language === 'ta' ? 'வெளிப்புற கழிவுகள்' : 'Ext. Deductions'} (₹)</th>
                                 <th>{t.currentBalance} (₹)</th>
                                 <th className="no-print" style={{ width: '120px' }}>{language === 'ta' ? 'நேரடி வரவு' : 'Add Credit'} (₹)</th>
                                 <th className="no-print" style={{ width: '160px' }}>{t.actions}</th>
@@ -177,7 +209,8 @@ export default function AmountCreditsPage() {
                                         <td style={{ fontWeight: 600 }}>{c.name}</td>
                                         <td>{c.village}</td>
                                         <td style={{ fontWeight: 600 }}>{formatCurrency(c.initialAmount)}</td>
-                                        <td style={{ fontWeight: 600, color: 'var(--primary)' }}>{formatCurrency(c.addedAmount)}</td>
+                                        <td style={{ fontWeight: 600, color: c.addedAmount < 0 ? 'var(--danger)' : 'var(--primary)' }}>{formatCurrency(c.addedAmount)}</td>
+                                        <td style={{ fontWeight: 600, color: 'var(--danger)' }}>{formatCurrency(c.externalDeductionAmount)}</td>
                                         <td style={{ fontWeight: 700, color: c.currentBalance <= 500 && c.currentBalance > 0 ? 'var(--danger)' : 'var(--success)' }}>
                                             {formatCurrency(c.currentBalance)}
                                             {c.currentBalance <= 500 && c.currentBalance > 0 && (
@@ -211,7 +244,16 @@ export default function AmountCreditsPage() {
                                                             e.preventDefault();
                                                             const val = Number(e.target.value);
                                                             if (val > 0) {
-                                                                handleInlineCredit(c.id, val);
+                                                                addExternalDeduction({
+                                                                    id: generateExternalDeductionId(deductions.map(d => d.id)),
+                                                                    customerId: c.id,
+                                                                    amount: val,
+                                                                    reason: 'Added Credit (via Credits Page)',
+                                                                    isProcessed: false,
+                                                                    date: todayStr(),
+                                                                    createdAt: new Date().toISOString()
+                                                                });
+                                                                showToast(language === 'ta' ? 'தொகை கழிக்கப்பட்டது' : 'Amount added to deductions');
                                                                 e.target.value = '';
                                                             }
                                                             const nextEl = document.querySelector(`input[data-field="direct-credit"][data-index="${index + 1}"]`) as HTMLInputElement;
@@ -284,7 +326,21 @@ export default function AmountCreditsPage() {
                 <CreditModal
                     t={t}
                     customers={customers.filter(c => c.status === 'active')}
-                    onSave={handleSaveCredit}
+                    onSave={(data) => {
+                        const amount = Number(data.amount);
+                        const dedId = generateExternalDeductionId(deductions.map(d => d.id));
+                        addExternalDeduction({
+                            id: dedId,
+                            customerId: data.customerId,
+                            amount,
+                            reason: data.notes || 'Added Credit (via Credits Page)',
+                            isProcessed: false,
+                            date: data.date,
+                            createdAt: new Date().toISOString()
+                        });
+                        showToast(language === 'ta' ? 'தொகை கழிக்கப்பட்டது' : 'Amount added to deductions');
+                        setShowModal(false);
+                    }}
                     onClose={() => setShowModal(false)}
                 />
             )}
@@ -297,6 +353,11 @@ export default function AmountCreditsPage() {
                     customerId={viewingHistory}
                     customerName={getCustomer(viewingHistory)?.name || ''}
                     advances={advances.filter(a => a.customerId === viewingHistory)}
+                    deductions={deductions.filter(d => d.customerId === viewingHistory)}
+                    onUpdateAdvance={updateAdvance}
+                    onDeleteAdvance={useStore.getState().deleteAdvance}
+                    onUpdateDeduction={useStore.getState().updateExternalDeduction}
+                    onDeleteDeduction={useStore.getState().deleteExternalDeduction}
                     onClose={() => setViewingHistory(null)}
                 />
             )}
@@ -308,7 +369,7 @@ export default function AmountCreditsPage() {
 function CreditModal({ t, customers, onSave, onClose }: {
     t: Translations;
     customers: Customer[];
-    onSave: (data: Omit<Advance, 'id' | 'createdAt'>) => void;
+    onSave: (data: { customerId: string; date: string; amount: number; notes: string }) => void;
     onClose: () => void;
 }) {
     const [form, setForm] = useState({
@@ -320,7 +381,7 @@ function CreditModal({ t, customers, onSave, onClose }: {
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave({ ...form, remainingBalance: form.amount });
+        onSave({ ...form });
     };
 
     return (
@@ -387,17 +448,81 @@ function CreditModal({ t, customers, onSave, onClose }: {
 }
 
 // ── History Modal ─────────────────────────────────────────────
-function HistoryModal({ t, language, customerId, customerName, advances, onClose }: {
+interface HistoryRecord {
+    id: string;
+    date: string;
+    amount: number;
+    notes?: string;
+    reason?: string;
+    type: 'advance' | 'deduction';
+    createdAt: string;
+    remainingBalance?: number;
+}
+
+function HistoryModal({
+    t,
+    language,
+    customerId,
+    customerName,
+    advances,
+    deductions,
+    onUpdateAdvance,
+    onDeleteAdvance,
+    onUpdateDeduction,
+    onDeleteDeduction,
+    onClose
+}: {
     t: Translations;
     language: string;
     customerId: string;
     customerName: string;
     advances: Advance[];
+    deductions: any[];
+    onUpdateAdvance: (id: string, data: Partial<Advance>) => void;
+    onDeleteAdvance: (id: string) => void;
+    onUpdateDeduction: (id: string, data: any) => void;
+    onDeleteDeduction: (id: string) => void;
     onClose: () => void;
 }) {
+    const [editItem, setEditItem] = useState<HistoryRecord | null>(null);
+
+    const records = useMemo(() => {
+        const combined: HistoryRecord[] = [
+            ...advances.map(a => ({ ...a, type: 'advance' as const })),
+            ...deductions.map(d => ({ ...d, type: 'deduction' as const, notes: d.reason }))
+        ];
+        return combined.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    }, [advances, deductions]);
+
+    const handleDelete = (record: HistoryRecord) => {
+        if (!confirm(t.deleteConfirm)) return;
+        if (record.type === 'advance') onDeleteAdvance(record.id);
+        else onDeleteDeduction(record.id);
+    };
+
+    const handleUpdate = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!editItem) return;
+
+        if (editItem.type === 'advance') {
+            onUpdateAdvance(editItem.id, {
+                amount: editItem.amount,
+                date: editItem.date,
+                notes: editItem.notes
+            });
+        } else {
+            onUpdateDeduction(editItem.id, {
+                amount: editItem.amount,
+                date: editItem.date,
+                reason: editItem.notes
+            });
+        }
+        setEditItem(null);
+    };
+
     return (
         <div className="modal-overlay">
-            <div className="modal modal-lg">
+            <div className="modal modal-lg" style={{ maxWidth: '900px' }}>
                 <div className="modal-header">
                     <div>
                         <h3 className="modal-title">{t.creditHistory}</h3>
@@ -408,35 +533,62 @@ function HistoryModal({ t, language, customerId, customerName, advances, onClose
                     <button className="btn btn-ghost btn-icon" onClick={onClose}><X size={18} /></button>
                 </div>
                 <div className="modal-body" style={{ padding: 0 }}>
-                    <div className="table-container" style={{ maxHeight: '400px', overflowY: 'auto', border: 'none', borderRadius: 0 }}>
+                    <div className="table-container" style={{ maxHeight: '450px', overflowY: 'auto', border: 'none', borderRadius: 0 }}>
                         <table style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
                             <thead style={{ position: 'sticky', top: 0, zIndex: 1, background: 'var(--surface)' }}>
                                 <tr>
                                     <th style={{ borderTop: 'none' }}>{t.date}</th>
-                                    <th style={{ borderTop: 'none' }}>{t.creditedAmount} (₹)</th>
-                                    <th style={{ borderTop: 'none' }}>{t.remainingBalance} (₹)</th>
+                                    <th style={{ borderTop: 'none' }}>{language === 'ta' ? 'வகை' : 'Type'}</th>
+                                    <th style={{ borderTop: 'none' }}>{t.amount} (₹)</th>
                                     <th style={{ borderTop: 'none' }}>{t.notes}</th>
+                                    <th style={{ borderTop: 'none', textAlign: 'center' }}>{t.actions}</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {advances.length === 0 ? (
+                                {records.length === 0 ? (
                                     <tr>
-                                        <td colSpan={4} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                                        <td colSpan={5} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                                             {t.noData}
                                         </td>
                                     </tr>
                                 ) : (
-                                    [...advances].sort((a, b) => b.date.localeCompare(a.date)).map((a) => (
-                                        <tr key={a.id}>
-                                            <td>{formatDate(a.date)}</td>
-                                            <td style={{ fontWeight: 600, color: 'var(--success)' }}>
-                                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                                    <ArrowUpCircle size={14} />
-                                                    {formatCurrency(a.amount)}
+                                    records.map((r) => (
+                                        <tr key={`${r.type}-${r.id}`}>
+                                            <td>{formatDate(r.date)}</td>
+                                            <td>
+                                                <span
+                                                    className="badge"
+                                                    style={{
+                                                        background: r.type === 'advance' ? 'var(--success)15' : 'var(--danger)15',
+                                                        color: r.type === 'advance' ? 'var(--success)' : 'var(--danger)',
+                                                        fontSize: '11px'
+                                                    }}
+                                                >
+                                                    {r.type === 'advance' ? (language === 'ta' ? 'முன்பணம்' : 'Advance') : (language === 'ta' ? 'வெளிப்புறக் கழிவு' : 'Deduction')}
+                                                </span>
+                                            </td>
+                                            <td style={{ fontWeight: 600, color: r.type === 'advance' ? 'var(--success)' : 'var(--danger)' }}>
+                                                {r.type === 'advance' ? '+' : '-'}{formatCurrency(r.amount)}
+                                            </td>
+                                            <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{r.notes || r.reason || '-'}</td>
+                                            <td>
+                                                <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                                    <button
+                                                        className="btn btn-ghost btn-sm btn-icon"
+                                                        style={{ color: 'var(--primary)' }}
+                                                        onClick={() => setEditItem({ ...r, notes: r.notes || r.reason })}
+                                                    >
+                                                        <Edit2 size={14} />
+                                                    </button>
+                                                    <button
+                                                        className="btn btn-ghost btn-sm btn-icon"
+                                                        style={{ color: 'var(--danger)' }}
+                                                        onClick={() => handleDelete(r)}
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
                                                 </div>
                                             </td>
-                                            <td style={{ fontWeight: 700 }}>{formatCurrency(a.remainingBalance)}</td>
-                                            <td style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{a.notes || '-'}</td>
                                         </tr>
                                     ))
                                 )}
@@ -448,6 +600,52 @@ function HistoryModal({ t, language, customerId, customerName, advances, onClose
                     <button className="btn btn-secondary" onClick={onClose}>{t.close}</button>
                 </div>
             </div>
+
+            {/* Sub-modal for editing a specific record */}
+            {editItem && (
+                <div className="modal-overlay" style={{ zIndex: 1100 }}>
+                    <div className="modal" style={{ width: '400px' }}>
+                        <div className="modal-header">
+                            <h3 className="modal-title">{t.edit} {editItem.type === 'advance' ? (language === 'ta' ? 'முன்பணம்' : 'Advance') : (language === 'ta' ? 'கழிவு' : 'Deduction')}</h3>
+                            <button className="btn btn-ghost btn-icon" onClick={() => setEditItem(null)}><X size={18} /></button>
+                        </div>
+                        <form onSubmit={handleUpdate}>
+                            <div className="modal-body">
+                                <div className="form-group">
+                                    <label className="form-label">{t.date}</label>
+                                    <input
+                                        type="date"
+                                        className="form-input"
+                                        value={editItem.date}
+                                        onChange={e => setEditItem({ ...editItem, date: e.target.value })}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">{t.amount} (₹)</label>
+                                    <input
+                                        type="number"
+                                        className="form-input"
+                                        value={editItem.amount}
+                                        onChange={e => setEditItem({ ...editItem, amount: Number(e.target.value) })}
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label className="form-label">{t.notes}</label>
+                                    <textarea
+                                        className="form-textarea"
+                                        value={editItem.notes || ''}
+                                        onChange={e => setEditItem({ ...editItem, notes: e.target.value })}
+                                    />
+                                </div>
+                            </div>
+                            <div className="modal-footer">
+                                <button type="button" className="btn btn-secondary" onClick={() => setEditItem(null)}>{t.cancel}</button>
+                                <button type="submit" className="btn btn-primary">{t.save}</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

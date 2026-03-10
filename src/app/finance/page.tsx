@@ -6,7 +6,8 @@ import { useStore, useCustomers, useAdvances, useSettings } from '@/lib/store';
 import { translations, Translations } from '@/lib/translations';
 import { Advance } from '@/lib/types';
 import { generateAdvanceId, formatDate, formatCurrency, todayStr, generateWhatsAppLink, parseTemplate } from '@/lib/utils';
-import { Plus, Search, Trash2, Wallet, X, AlertTriangle, Send } from 'lucide-react';
+import { Search, Plus, Filter, Trash2, Printer, History, Wallet, X, AlertTriangle, Send } from 'lucide-react';
+import Link from 'next/link';
 
 export default function FinancePage() {
     return (
@@ -46,9 +47,10 @@ function FinanceContent() {
         const customer = getCustomer(a.customerId);
         return !search || customer?.name.toLowerCase().includes(search.toLowerCase()) || customer?.village.toLowerCase().includes(search.toLowerCase());
     }).sort((a, b) => {
-        if (a.remainingBalance === 0 && b.remainingBalance !== 0) return 1;
-        if (a.remainingBalance !== 0 && b.remainingBalance === 0) return -1;
-        return b.remainingBalance - a.remainingBalance;
+        const hasBalA = a.remainingBalance > 0 ? 1 : 0;
+        const hasBalB = b.remainingBalance > 0 ? 1 : 0;
+        if (hasBalA !== hasBalB) return hasBalB - hasBalA;
+        return a.customerId.localeCompare(b.customerId, undefined, { numeric: true });
     });
 
     const totalOutstanding = advances.reduce((s, a) => s + a.remainingBalance, 0);
@@ -90,9 +92,14 @@ function FinanceContent() {
                     <h1 className="page-title">{t.finance}</h1>
                     <p className="page-subtitle">{advances.length} {t.totalFinanceRecords}</p>
                 </div>
-                <button className="btn btn-primary" onClick={() => { setPreselectedId(undefined); setShowModal(true); }}>
-                    <Plus size={16} /> {t.addAmount}
-                </button>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                    <Link href="/finance/history" className="btn btn-secondary">
+                        <History size={16} /> {language === 'ta' ? 'வரலாறு' : 'History'}
+                    </Link>
+                    <button className="btn btn-primary" onClick={() => { setPreselectedId(undefined); setShowModal(true); }}>
+                        <Plus size={16} /> {t.giveAdvance}
+                    </button>
+                </div>
             </div>
 
             {/* Stats */}

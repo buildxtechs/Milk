@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useMemo, useRef } from 'react';
-import { useStore, useCustomers, useTransactions, useAdvances, useSettings } from '@/lib/store';
+import { useStore, useCustomers, useTransactions, useAdvances, useExternalDeductions, useSettings } from '@/lib/store';
 import { translations } from '@/lib/translations';
-import { formatDate, formatCurrency, currentMonthStr, generateWhatsAppLink } from '@/lib/utils';
+import { formatDate, formatCurrency, currentMonthStr, generateWhatsAppLink, calculateCustomerBalance } from '@/lib/utils';
 import { Printer, FileText, User, Download, Send } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -14,6 +14,7 @@ export default function PayslipPage() {
     const customers = useCustomers();
     const transactions = useTransactions();
     const advances = useAdvances();
+    const deductions = useExternalDeductions();
     const settings = useSettings();
     const payslipRef = useRef<HTMLDivElement>(null);
 
@@ -31,7 +32,7 @@ export default function PayslipPage() {
 
         const monthTxns = transactions.filter(txn =>
             txn.customerId === selectedCustomerId &&
-            txn.date.startsWith(selectedMonth)
+            (!selectedMonth || txn.date.startsWith(selectedMonth))
         ).map(txn => ({
             id: txn.id,
             date: txn.date,
@@ -43,7 +44,7 @@ export default function PayslipPage() {
 
         const monthAdvances = advances.filter(adv =>
             adv.customerId === selectedCustomerId &&
-            adv.date.startsWith(selectedMonth)
+            (!selectedMonth || adv.date.startsWith(selectedMonth))
         ).map(adv => ({
             id: adv.id,
             date: adv.date,
@@ -53,8 +54,20 @@ export default function PayslipPage() {
             createdAt: adv.createdAt
         }));
 
-        return [...monthTxns, ...monthAdvances].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-    }, [selectedCustomerId, selectedMonth, transactions, advances, language]);
+        const monthDeductions = deductions.filter(d =>
+            d.customerId === selectedCustomerId &&
+            (!selectedMonth || d.date.startsWith(selectedMonth))
+        ).map(d => ({
+            id: d.id,
+            date: d.date,
+            type: 'deduction' as const,
+            amount: d.amount,
+            details: d.reason || (language === 'ta' ? 'கைமுறை கழிவு' : 'Manual Deduction'),
+            createdAt: d.createdAt
+        }));
+
+        return [...monthTxns, ...monthAdvances, ...monthDeductions].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    }, [selectedCustomerId, selectedMonth, transactions, advances, deductions, language]);
 
     const stats = useMemo(() => {
         const added = monthlyData.filter(d => d.type === 'addition').reduce((s, d) => s + d.amount, 0);
@@ -64,8 +77,8 @@ export default function PayslipPage() {
 
     const currentTotalBalance = useMemo(() => {
         if (!selectedCustomerId) return 0;
-        return advances.filter(a => a.customerId === selectedCustomerId).reduce((s, a) => s + a.remainingBalance, 0);
-    }, [selectedCustomerId, advances]);
+        return calculateCustomerBalance(selectedCustomerId, advances, deductions);
+    }, [selectedCustomerId, advances, deductions]);
 
     const formatTime = (isoString: string) => {
         try {
@@ -93,7 +106,8 @@ export default function PayslipPage() {
             const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
 
             pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-            pdf.save(`payslip-${selectedCustomer?.name}-${selectedMonth}.pdf`);
+            const filenameMonth = selectedMonth || (language === 'ta' ? 'முழு_வரலாறு' : 'Full_History');
+            pdf.save(`payslip-${selectedCustomer?.name}-${filenameMonth}.pdf`);
         } catch (error) {
             console.error('Error generating PDF:', error);
         } finally {
@@ -108,12 +122,13 @@ export default function PayslipPage() {
             return;
         }
 
-        const message = `*PAYSLIP - ${selectedMonth}*\n\n` +
+        const reportTitle = selectedMonth ? selectedMonth : (language === 'ta' ? 'முழு வரலாறு' : 'Full History');
+        const message = `*PAYSLIP - ${reportTitle}*\n\n` +
             `*Shop:* ${settings.shopName}\n` +
             `*Customer:* ${selectedCustomer.name} (${selectedCustomer.id})\n\n` +
             `*Total Added:* ${formatCurrency(stats.added)}\n` +
             `*Total Deduction:* ${formatCurrency(stats.deducted)}\n` +
-            `*Monthly Net Change:* ${stats.net >= 0 ? '+' : ''}${formatCurrency(stats.net)}\n` +
+            `*Net Change:* ${stats.net >= 0 ? '+' : ''}${formatCurrency(stats.net)}\n` +
             `*Current Balance:* ${formatCurrency(currentTotalBalance)}\n\n` +
             `Please find the detailed payslip PDF attached below.`;
 
@@ -191,7 +206,7 @@ export default function PayslipPage() {
                             <h2 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary)' }}>{settings.shopName}</h2>
                             <p style={{ fontSize: '14px', color: 'var(--text-muted)' }}>{settings.address}</p>
                             <div style={{ marginTop: '16px', display: 'inline-block', padding: '6px 20px', background: 'var(--primary)', color: 'white', borderRadius: '100px', fontWeight: 700 }}>
-                                {language === 'ta' ? 'பேஸ்லிப்' : 'PAYSLIP'} - {selectedMonth}
+                                {language === 'ta' ? 'பேஸ்லிப்' : 'PAYSLIP'} - {selectedMonth || (language === 'ta' ? 'முழு வரலாறு' : 'Full History')}
                             </div>
                         </div>
                         <div className="card-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '40px', background: 'var(--surface-2)' }}>
@@ -258,7 +273,7 @@ export default function PayslipPage() {
                                         <td style={{ textAlign: 'right', color: 'var(--danger)' }}>{formatCurrency(stats.deducted)}</td>
                                     </tr>
                                     <tr style={{ background: 'var(--primary-light)', fontWeight: 800, fontSize: '16px' }}>
-                                        <td colSpan={3} style={{ textAlign: 'right' }}>{language === 'ta' ? 'மாதாந்திர நிகர மாற்றம்' : 'Monthly Net Change'}</td>
+                                        <td colSpan={3} style={{ textAlign: 'right' }}>{language === 'ta' ? (selectedMonth ? 'மாதாந்திர நிகர மாற்றம்' : 'மொத்த நிகர மாற்றம்') : (selectedMonth ? 'Monthly Net Change' : 'Total Net Change')}</td>
                                         <td style={{ textAlign: 'right', color: stats.net >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                                             {stats.net >= 0 ? '+' : ''}{formatCurrency(stats.net)}
                                         </td>

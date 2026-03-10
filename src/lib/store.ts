@@ -13,6 +13,7 @@ interface AppState {
     addCustomer: (customer: Customer) => void;
     updateCustomer: (id: string, updates: Partial<Customer>) => void;
     deleteCustomer: (id: string) => void;
+    standardizeAllCustomerIds: () => void;
 
     // Products
     products: Product[];
@@ -24,6 +25,7 @@ interface AppState {
     // Transactions (POS)
     transactions: Transaction[];
     addTransaction: (transaction: Transaction) => void;
+    updateTransaction: (id: string, updates: Partial<Transaction>) => void;
     deleteTransaction: (id: string) => void;
 
     // Advances
@@ -41,8 +43,11 @@ interface AppState {
     // Payouts & Deductions
     payouts: Payout[];
     addPayout: (payout: Payout) => void;
+    deletePayout: (id: string) => void;
     externalDeductions: ExternalDeduction[];
     addExternalDeduction: (deduction: ExternalDeduction) => void;
+    updateExternalDeduction: (id: string, updates: Partial<ExternalDeduction>) => void;
+    deleteExternalDeduction: (id: string) => void;
 
     // Auth
     user: User | null;
@@ -100,8 +105,61 @@ export const useStore = create<AppState>()(
             deleteCustomer: (id) =>
                 set((state) => ({
                     customers: state.customers.filter((c) => c.id !== id),
+                    transactions: state.transactions.filter((t) => t.customerId !== id),
+                    advances: state.advances.filter((a) => a.customerId !== id),
+                    payouts: state.payouts.filter((p) => p.customerId !== id),
+                    externalDeductions: state.externalDeductions.filter((d) => d.customerId !== id),
                     pendingSync: [...state.pendingSync, { type: 'customers', action: 'delete', id, timestamp: Date.now() }]
                 })),
+            standardizeAllCustomerIds: () =>
+                set((state) => {
+                    const { normalizeCustomerId } = require('@/lib/utils');
+                    const newPendingChanges: SyncChange[] = [];
+                    const idMap: Record<string, string> = {};
+
+                    // 1. Normalize Customer IDs
+                    const updatedCustomers = state.customers.map(c => {
+                        const newId = normalizeCustomerId(c.id);
+                        idMap[c.id] = newId;
+                        return { ...c, id: newId };
+                    });
+
+                    // 2. Update Transactions
+                    const updatedTransactions = state.transactions.map(t => {
+                        const newId = idMap[t.customerId] || t.customerId;
+                        return { ...t, customerId: newId };
+                    });
+
+                    // 3. Update Advances
+                    const updatedAdvances = state.advances.map(a => {
+                        const newId = idMap[a.customerId] || a.customerId;
+                        return { ...a, customerId: newId };
+                    });
+
+                    // 4. Update Payouts
+                    const updatedPayouts = state.payouts.map(p => {
+                        const newId = idMap[p.customerId] || p.customerId;
+                        return { ...p, customerId: newId };
+                    });
+
+                    // 5. Update External Deductions
+                    const updatedExternalDeductions = state.externalDeductions.map(d => {
+                        const newId = idMap[d.customerId] || d.customerId;
+                        return { ...d, customerId: newId };
+                    });
+
+                    // Note: In local storage mode, we just update the state.
+                    // Syncing all these changes at once might be large, but necessary for consistency.
+                    // For now, we'll just update state. Real sync would need batch handling.
+
+                    return {
+                        customers: updatedCustomers,
+                        transactions: updatedTransactions,
+                        advances: updatedAdvances,
+                        payouts: updatedPayouts,
+                        externalDeductions: updatedExternalDeductions
+                    };
+                }),
 
             // Products
             products: [],
@@ -145,6 +203,15 @@ export const useStore = create<AppState>()(
                     transactions: [...state.transactions, transaction],
                     pendingSync: [...state.pendingSync, { type: 'transactions', action: 'upsert', data: transaction, timestamp: Date.now() }]
                 })),
+            updateTransaction: (id, updates) =>
+                set((state) => {
+                    const updatedTransactions = state.transactions.map((t) => (t.id === id ? { ...t, ...updates } : t));
+                    const transaction = updatedTransactions.find(t => t.id === id);
+                    return {
+                        transactions: updatedTransactions,
+                        pendingSync: [...state.pendingSync, { type: 'transactions', action: 'upsert', data: transaction, timestamp: Date.now() }]
+                    };
+                }),
             deleteTransaction: (id) =>
                 set((state) => ({
                     transactions: state.transactions.filter((t) => t.id !== id),
@@ -215,14 +282,49 @@ export const useStore = create<AppState>()(
 
             // Payouts & Deductions
             payouts: [],
-            addPayout: (payout) => set((state) => ({
-                payouts: [...state.payouts, payout],
-                pendingSync: [...state.pendingSync, { type: 'payouts', action: 'upsert', data: payout, timestamp: Date.now() }]
+            addPayout: (payout) => set((state) => {
+                const updatedExternalDeductions = state.externalDeductions.map(d =>
+                    d.customerId === payout.customerId && !d.isProcessed
+                        ? { ...d, isProcessed: true }
+                        : d
+                );
+
+                const syncChanges: SyncChange[] = [
+                    { type: 'payouts', action: 'upsert', data: payout, timestamp: Date.now() }
+                ];
+
+                updatedExternalDeductions.forEach(d => {
+                    if (d.customerId === payout.customerId && d.isProcessed) {
+                        syncChanges.push({ type: 'externalDeductions', action: 'upsert', data: d, timestamp: Date.now() });
+                    }
+                });
+
+                return {
+                    payouts: [...state.payouts, payout],
+                    externalDeductions: updatedExternalDeductions,
+                    pendingSync: [...state.pendingSync, ...syncChanges]
+                };
+            }),
+            deletePayout: (id) => set((state) => ({
+                payouts: state.payouts.filter((p) => p.id !== id),
+                pendingSync: [...state.pendingSync, { type: 'payouts', action: 'delete', id, timestamp: Date.now() }]
             })),
             externalDeductions: [],
             addExternalDeduction: (deduction) => set((state) => ({
                 externalDeductions: [...state.externalDeductions, deduction],
                 pendingSync: [...state.pendingSync, { type: 'externalDeductions', action: 'upsert', data: deduction, timestamp: Date.now() }]
+            })),
+            updateExternalDeduction: (id, updates) => set((state) => {
+                const updatedDeductions = state.externalDeductions.map((d) => (d.id === id ? { ...d, ...updates } : d));
+                const deduction = updatedDeductions.find(d => d.id === id);
+                return {
+                    externalDeductions: updatedDeductions,
+                    pendingSync: [...state.pendingSync, { type: 'externalDeductions', action: 'upsert', data: deduction, timestamp: Date.now() }]
+                };
+            }),
+            deleteExternalDeduction: (id) => set((state) => ({
+                externalDeductions: state.externalDeductions.filter((d) => d.id !== id),
+                pendingSync: [...state.pendingSync, { type: 'externalDeductions', action: 'delete', id, timestamp: Date.now() }]
             })),
 
             // Auth

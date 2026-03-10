@@ -4,8 +4,8 @@ import { useState } from 'react';
 import { useStore, useCustomers, useTransactions, useAdvances } from '@/lib/store';
 import { translations, Translations } from '@/lib/translations';
 import { Customer, CattleType, Language } from '@/lib/types';
-import { generateCustomerId, formatDate, generateAdvanceId, todayStr } from '@/lib/utils';
-import { Plus, Search, Edit2, Trash2, Eye, X, Users, Phone, Wallet, Upload, Download } from 'lucide-react';
+import { generateCustomerId, formatDate, generateAdvanceId, todayStr, normalizeCustomerId } from '@/lib/utils';
+import { Plus, Search, Edit2, Trash2, Eye, X, Users, Phone, Wallet, Upload, Download, ShieldCheck } from 'lucide-react';
 import CustomerDetailsModal from '@/components/customers/CustomerDetailsModal';
 import { useRouter } from 'next/navigation';
 import { downloadCustomerTemplate } from '@/lib/excel-template';
@@ -20,8 +20,10 @@ export default function CustomersPage() {
     const addCustomer = useStore((s) => s.addCustomer);
     const updateCustomer = useStore((s) => s.updateCustomer);
     const deleteCustomer = useStore((s) => s.deleteCustomer);
+    const standardizeAllCustomerIds = useStore((s) => s.standardizeAllCustomerIds);
     const addAdvance = useStore((s) => s.addAdvance);
     const updateAdvance = useStore((s) => s.updateAdvance);
+    const deleteAdvance = useStore((s) => s.deleteAdvance);
     const router = useRouter();
 
     const [search, setSearch] = useState('');
@@ -74,7 +76,8 @@ export default function CustomersPage() {
                 let currentAdvanceIds = advances.map(a => a.id);
 
                 data.forEach((row) => {
-                    const id = String(row['Member Number'] || row['Member ID'] || row.id || generateCustomerId(currentExistingIds));
+                    const rawId = row['Member Number'] || row['Member ID'] || row.id || generateCustomerId(currentExistingIds);
+                    const id = normalizeCustomerId(rawId);
                     const newCustomer: Customer = {
                         id,
                         name: row.Name || row.name || 'Unknown',
@@ -148,9 +151,10 @@ export default function CustomersPage() {
         const balanceA = advances.filter(adv => adv.customerId === a.id).reduce((s, adv) => s + adv.remainingBalance, 0);
         const balanceB = advances.filter(adv => adv.customerId === b.id).reduce((s, adv) => s + adv.remainingBalance, 0);
 
-        if (balanceA === 0 && balanceB !== 0) return 1;
-        if (balanceA !== 0 && balanceB === 0) return -1;
-        return balanceB - balanceA; // Descending by amount
+        const hasBalA = balanceA > 0 ? 1 : 0;
+        const hasBalB = balanceB > 0 ? 1 : 0;
+        if (hasBalA !== hasBalB) return hasBalB - hasBalA;
+        return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
 
     return (
@@ -176,6 +180,9 @@ export default function CustomersPage() {
                     </button>
                     <button className="btn btn-secondary" onClick={downloadCustomerTemplate}>
                         <Download size={16} /> {language === 'ta' ? 'டெம்ப்ளேட் தரவிறக்கம்' : 'Download Template'}
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => { if (confirm('Standardize all existing IDs to CUST-XXX format?')) standardizeAllCustomerIds(); }}>
+                        <ShieldCheck size={16} /> {language === 'ta' ? 'ஐடிகளை சீராக்கு' : 'Standardize IDs'}
                     </button>
                     <button className="btn btn-primary" onClick={() => { setEditingCustomer(null); setShowModal(true); }}>
                         <Plus size={16} /> {t.addCustomer2}
@@ -254,35 +261,29 @@ export default function CustomersPage() {
                                                         data-index={index}
                                                         data-field="amount-provided"
                                                         style={{ width: '100px', height: '32px', padding: '0 8px', fontSize: '13px' }}
-                                                        defaultValue={advances.filter(a => a.customerId === c.id).reduce((sum, a) => sum + a.amount, 0)}
+                                                        defaultValue={advances.filter(a => a.customerId === c.id).reduce((sum, a) => sum + a.remainingBalance, 0)}
                                                         onBlur={(e) => {
                                                             const newVal = Number(e.target.value);
                                                             const customerAdvances = advances.filter(a => a.customerId === c.id);
+                                                            const totalCurrent = customerAdvances.reduce((sum, a) => sum + a.remainingBalance, 0);
 
-                                                            if (customerAdvances.length > 0) {
-                                                                // For simplicity in this direct edit, we update the first advance 
-                                                                // or adjust the first one to match the total if they want to manage it this way.
-                                                                // Usually, "Amount Provided" in this context refers to their initial/total credit.
-                                                                const firstAdv = customerAdvances[0];
-                                                                if (firstAdv.amount !== newVal) {
-                                                                    const diff = newVal - firstAdv.amount;
-                                                                    updateAdvance(firstAdv.id, {
+                                                            if (newVal !== totalCurrent) {
+                                                                // Delete existing advances to assert the exact new overall balance
+                                                                customerAdvances.forEach(a => deleteAdvance(a.id));
+
+                                                                if (newVal > 0) {
+                                                                    addAdvance({
+                                                                        id: `ADV-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                                                                        customerId: c.id,
+                                                                        date: todayStr(),
                                                                         amount: newVal,
-                                                                        remainingBalance: Math.max(0, firstAdv.remainingBalance + diff)
+                                                                        remainingBalance: newVal,
+                                                                        monthlyDeduction: 0,
+                                                                        notes: 'Balance overridden via Edit on Customers page',
+                                                                        createdAt: new Date().toISOString()
                                                                     });
                                                                 }
-                                                            } else if (newVal > 0) {
-                                                                const newAdvId = generateAdvanceId(advances.map(a => a.id));
-                                                                addAdvance({
-                                                                    id: newAdvId,
-                                                                    customerId: c.id,
-                                                                    date: todayStr(),
-                                                                    amount: newVal,
-                                                                    remainingBalance: newVal,
-                                                                    monthlyDeduction: 0,
-                                                                    notes: 'Added via inline edit',
-                                                                    createdAt: new Date().toISOString()
-                                                                });
+                                                                showToast(language === 'ta' ? `நிலுவை ₹${newVal} ஆக புதுப்பிக்கப்பட்டது` : `Balance overridden to ₹${newVal}`);
                                                             }
                                                         }}
                                                         onKeyDown={(e: any) => {

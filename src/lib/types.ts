@@ -115,6 +115,7 @@ export interface ExternalDeduction {
     customerId: string;
     amount: number;
     reason: string;
+    isProcessed: boolean;
     date: string;
     createdAt: string;
 }
