@@ -375,12 +375,9 @@ export const useStore = create<AppState>()(
                 if (categories.includes('externalDeductions')) updates.externalDeductions = [];
                 return updates;
             }),
-            performMonthlyReset: () => set((state) => {
+            performMonthlyReset: () => set(() => {
                 return {
-                    transactions: [],
                     lastResetMonth: new Date().toISOString().substring(0, 7),
-                    // We might need to sync the fact that transactions were cleared, 
-                    // but for simplicity in this offline-first model, we'll let the next sync handle the overall state if needed
                 };
             }),
 

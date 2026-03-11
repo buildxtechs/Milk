@@ -800,12 +800,39 @@ tbody tr:hover {
     }
 }
 
+/* ── Print-Only Utility ────────────────────────────────────── */
+.print-only {
+    display: none !important;
+}
+
 /* ── Print Styles ──────────────────────────────────────────── */
 @media print {
+    /* Hide EVERYTHING first */
+    body * {
+        visibility: hidden;
+    }
+
+    /* Then show ONLY the thermal receipt and its children */
+    #thermal-print-area,
+    #thermal-print-area * {
+        visibility: visible !important;
+    }
+
+    #thermal-print-area {
+        display: block !important;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 80mm;
+        padding: 2mm;
+        background: white !important;
+    }
+
     .sidebar,
     .header,
     .no-print,
-    .sidebar-overlay {
+    .sidebar-overlay,
+    .modal-overlay {
         display: none !important;
     }
 
@@ -814,20 +841,18 @@ tbody tr:hover {
         padding: 0 !important;
     }
 
-    .print-area {
+    body {
+        background: white !important;
+        margin: 0 !important;
         padding: 0 !important;
     }
 
-    body {
-        background: white;
-        font-size: 11px;
-    }
-
-    .card {
-        box-shadow: none;
-        border: 1px solid #eee;
+    @page {
+        margin: 0;
+        size: 80mm auto;
     }
 }
+
 
 /* ── Animations ────────────────────────────────────────────── */
 @keyframes fadeIn {

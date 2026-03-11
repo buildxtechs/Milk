@@ -2,10 +2,10 @@
 
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useStore, useCustomers, useAdvances, useSettings } from '@/lib/store';
+import { useStore, useCustomers, useAdvances, useSettings, useExternalDeductions } from '@/lib/store';
 import { translations, Translations } from '@/lib/translations';
 import { Advance } from '@/lib/types';
-import { generateAdvanceId, formatDate, formatCurrency, todayStr, generateWhatsAppLink, parseTemplate } from '@/lib/utils';
+import { generateAdvanceId, formatDate, formatCurrency, todayStr, generateWhatsAppLink, parseTemplate, calculateCustomerBalance } from '@/lib/utils';
 import { Search, Plus, Filter, Trash2, Printer, History, Wallet, X, AlertTriangle, Send } from 'lucide-react';
 import Link from 'next/link';
 
@@ -22,6 +22,7 @@ function FinanceContent() {
     const t = translations[language];
     const customers = useCustomers();
     const advances = useAdvances();
+    const deductions = useExternalDeductions();
     const addAdvance = useStore((s) => s.addAdvance);
     const updateAdvance = useStore((s) => s.updateAdvance);
     const deleteAdvance = useStore((s) => s.deleteAdvance);
@@ -64,9 +65,8 @@ function FinanceContent() {
         // Open WhatsApp Link
         const customer = getCustomer(data.customerId);
         if (customer && customer.whatsapp) {
-            // Recalculate customer's total balance
-            const customerAdvances = advances.filter(a => a.customerId === data.customerId);
-            const currentTotalBalance = customerAdvances.reduce((s, a) => s + a.remainingBalance, 0) + data.amount;
+            const oldBalance = calculateCustomerBalance(data.customerId, advances, deductions);
+            const currentTotalBalance = oldBalance + data.amount;
 
             const message = parseTemplate(settings.whatsappAmountTemplate, {
                 name: customer.name,

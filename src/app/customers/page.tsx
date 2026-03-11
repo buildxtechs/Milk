@@ -1,10 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { useStore, useCustomers, useTransactions, useAdvances } from '@/lib/store';
+import { useStore, useCustomers, useTransactions, useAdvances, useExternalDeductions } from '@/lib/store';
 import { translations, Translations } from '@/lib/translations';
 import { Customer, CattleType, Language } from '@/lib/types';
-import { generateCustomerId, formatDate, generateAdvanceId, todayStr, normalizeCustomerId } from '@/lib/utils';
+import { generateCustomerId, formatDate, generateAdvanceId, todayStr, normalizeCustomerId, formatCurrency, calculateCustomerBalance } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, Eye, X, Users, Phone, Wallet, Upload, Download, ShieldCheck } from 'lucide-react';
 import CustomerDetailsModal from '@/components/customers/CustomerDetailsModal';
 import { useRouter } from 'next/navigation';
@@ -17,6 +17,7 @@ export default function CustomersPage() {
     const customers = useCustomers();
     const transactions = useTransactions();
     const advances = useAdvances();
+    const deductions = useExternalDeductions();
     const addCustomer = useStore((s) => s.addCustomer);
     const updateCustomer = useStore((s) => s.updateCustomer);
     const deleteCustomer = useStore((s) => s.deleteCustomer);
@@ -220,6 +221,7 @@ export default function CustomersPage() {
                                 <th>{t.cattleType}</th>
                                 <th>{t.numberOfCattle}</th>
                                 <th>{language === 'ta' ? 'வழங்கப்பட்ட தொகை' : 'Amount Provided'}</th>
+                                <th>{language === 'ta' ? 'தற்போதைய இருப்பு' : 'Current Balance'}</th>
                                 <th>{t.status}</th>
                                 <th>{t.actions}</th>
                             </tr>
@@ -227,7 +229,7 @@ export default function CustomersPage() {
                         <tbody>
                             {filtered.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                                    <td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
                                         <Users size={32} style={{ opacity: 0.3, margin: '0 auto 8px', display: 'block' }} />
                                         {t.noData}
                                     </td>
@@ -300,6 +302,20 @@ export default function CustomersPage() {
                                                         }}
                                                     />
                                                 </div>
+                                            </td>
+                                            <td>
+                                                {(() => {
+                                                    const bal = calculateCustomerBalance(c.id, advances, deductions);
+                                                    return (
+                                                        <span style={{
+                                                            fontWeight: 700,
+                                                            fontSize: '13px',
+                                                            color: bal > 0 ? 'var(--danger)' : 'var(--success)',
+                                                        }}>
+                                                            {formatCurrency(bal)}
+                                                        </span>
+                                                    );
+                                                })()}
                                             </td>
                                             <td>
                                                 <span className={`badge ${c.status === 'active' ? 'badge-green' : 'badge-gray'}`}>

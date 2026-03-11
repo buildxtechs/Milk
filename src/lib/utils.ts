@@ -225,16 +225,15 @@ export function generatePOSWhatsAppMessage(
     currentBalance: number,
     settings: ShopSettings
 ): string {
-    const t = translations['ta'];
     const productList = txn.items.map((item, i) =>
-        `   ${i + 1}. ${item.productName} x ${item.quantity} @ ${formatCurrency(item.unitPrice)} = ${formatCurrency(item.total)}`
+        `   • ${item.productName} x ${item.quantity}`
     ).join('\n');
 
-    return `*🏪 ${settings.shopName}*\n` +
+    return `🐄 *${settings.shopName}*\n` +
         `━━━━━━━━━━━━━━━━━\n\n` +
         `வணக்கம் *${customerName}* 🙏\n` +
         `உங்கள் கொள்முதலுக்கு நன்றி!\n\n` +
-        `📋 *கொள்முதல் விவரம்*\n` +
+        `📦 *கொள்முதல் விவரம்*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
         `📅 தேதி: ${formatDate(txn.date)}\n\n` +
         `🛒 *எடுத்த பொருட்கள்:*\n` +
@@ -242,10 +241,10 @@ export function generatePOSWhatsAppMessage(
         `━━━━━━━━━━━━━━━━━\n` +
         `💰 *கணக்கு விவரம்*\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `▪️ பழைய இருப்பு       : ${formatCurrency(oldBalance)}\n` +
-        `▪️ கொள்முதல் (+)      : ${formatCurrency(txn.totalAmount)}\n` +
+        `🏮 பழைய இருப்பு       : ${formatCurrency(oldBalance)}\n` +
+        `🏮 கொள்முதல் (+)      : ${formatCurrency(txn.totalAmount)}\n` +
         `━━━━━━━━━━━━━━━━━\n` +
-        `✅ *தற்போதைய இருப்பு : ${formatCurrency(currentBalance)}*\n` +
+        `🏮 *தற்போதைய இருப்பு : ${formatCurrency(currentBalance)}*\n` +
         `━━━━━━━━━━━━━━━━━\n\n` +
         `🙏 நன்றி! மீண்டும் வாங்க வாருங்கள்.\n` +
         (settings.mobile ? `📞 தொடர்புக்கு: ${settings.mobile}` : '');

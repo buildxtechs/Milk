@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import { useStore, useCustomers, useTransactions, useAdvances, useExternalDeductions, useSettings } from '@/lib/store';
 import { translations } from '@/lib/translations';
 import { formatDate, formatCurrency, currentMonthStr, generateWhatsAppLink, generatePOSWhatsAppMessage, calculateCustomerBalance } from '@/lib/utils';
@@ -25,6 +25,45 @@ export default function WhatsAppSharePage() {
     const payslipRef = useRef<HTMLDivElement>(null);
     const [renderData, setRenderData] = useState<any>(null);
     const [renderType, setRenderType] = useState<'invoice' | 'payslip' | null>(null);
+
+    const groupedRenderData = useMemo(() => {
+        if (!renderData || renderType !== 'payslip') return [];
+
+        const allItems = [
+            ...(renderData.monthTxns || []).map((t: any) => ({ ...t, type: 'charge' })),
+            ...(renderData.monthAdvances || []).map((a: any) => ({ ...a, type: 'charge' })),
+            ...(renderData.allPayments || []).map((p: any) => ({ ...p, type: 'payment' }))
+        ].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+
+        const groups: any[] = [];
+        let runningBalance = 0;
+        let currentGroup: any = null;
+
+        allItems.forEach((item) => {
+            const date = new Date(item.createdAt || item.date);
+            const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+            const monthLabel = date.toLocaleString(language === 'ta' ? 'ta-IN' : 'en-US', { month: 'long', year: 'numeric' });
+
+            if (!currentGroup || currentGroup.monthKey !== monthKey) {
+                if (currentGroup) groups.push(currentGroup);
+                currentGroup = {
+                    monthKey,
+                    monthLabel,
+                    items: [],
+                    openingBalance: runningBalance,
+                    closingBalance: 0
+                };
+            }
+
+            currentGroup.items.push(item);
+            if (item.type === 'charge') runningBalance += (item.amount || item.totalAmount);
+            else runningBalance -= (item.amount || item.totalAmount);
+            currentGroup.closingBalance = runningBalance;
+        });
+
+        if (currentGroup) groups.push(currentGroup);
+        return groups;
+    }, [renderData, renderType, language]);
 
     const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -82,34 +121,47 @@ export default function WhatsAppSharePage() {
             setRenderData({ transaction: latestTxn, customer });
             setRenderType('invoice');
         } else {
-            // Payslip
-            const monthTxns = transactions.filter(txn => txn.customerId === custId && txn.date.startsWith(selectedMonth));
-            const monthAdvances = advances.filter(adv => adv.customerId === custId && adv.date.startsWith(selectedMonth));
-            const totalAdded = monthAdvances.reduce((s, a) => s + a.amount, 0);
-            const totalDeducted = monthTxns.reduce((s, t) => s + t.totalAmount, 0);
+            // Payslip - Full History
+            const chargesTxns = transactions.filter(txn =>
+                txn.customerId === custId && txn.paymentMode === 'advance'
+            );
+            const manualDebts = advances.filter(adv =>
+                adv.customerId === custId && !adv.notes?.startsWith('POS Purchase')
+            );
+            const allPayments = deductions.filter(d => d.customerId === custId);
+
+            const totalAdded = chargesTxns.reduce((s, t) => s + t.totalAmount, 0) +
+                manualDebts.reduce((s, a) => s + a.amount, 0);
+            const totalDeducted = allPayments.reduce((s, d) => s + d.amount, 0);
             const currentBalance = getBalance(custId);
 
             // Build transaction details for payslip
-            const advancesList = monthAdvances.map((adv: any, i: number) =>
-                `   ➕ ${formatDate(adv.date)} - ${adv.notes || 'தொகை சேர்க்கப்பட்டது'} : ${formatCurrency(adv.amount)}`
-            ).join('\n');
-            const purchasesList = monthTxns.map((txn: any, i: number) =>
-                `   ➖ ${formatDate(txn.date)} - ${txn.items.map((it: any) => it.productName).join(', ')} : ${formatCurrency(txn.totalAmount)}`
+            const chargesList = [
+                ...chargesTxns.map(txn =>
+                    `   ➕ ${formatDate(txn.date)} - ${txn.items.map(it => it.productName).join(', ')} : ${formatCurrency(txn.totalAmount)}`
+                ),
+                ...manualDebts.map(adv =>
+                    `   ➕ ${formatDate(adv.date)} - ${adv.notes || 'தொகை சேர்க்கப்பட்டது'} : ${formatCurrency(adv.amount)}`
+                )
+            ].join('\n');
+
+            const paymentsList = allPayments.map(d =>
+                `   ➖ ${formatDate(d.date)} - ${d.reason || 'தொகை செலுத்தப்பட்டது'} : ${formatCurrency(d.amount)}`
             ).join('\n');
 
             whatsappMessage = `*🏪 ${settings.shopName}*\n` +
                 `━━━━━━━━━━━━━━━━━\n\n` +
                 `வணக்கம் *${customer.name}* 🙏\n\n` +
-                `📄 *மாத பேஸ்லிப் - ${selectedMonth}*\n` +
+                `📄 *வாடிக்கையாளர் பேஸ்லிப் - முழு வரலாறு*\n` +
                 `━━━━━━━━━━━━━━━━━\n\n` +
-                (advancesList ? `💵 *வரவு (சேர்க்கப்பட்ட தொகை):*\n${advancesList}\n\n` : '') +
-                (purchasesList ? `🛒 *செலவு (கொள்முதல்):*\n${purchasesList}\n\n` : '') +
-                (!advancesList && !purchasesList ? `📭 இந்த மாதத்தில் பதிவுகள் இல்லை\n\n` : '') +
+                (chargesList ? `💵 *கொள்முதல் / கடன்:*\n${chargesList}\n\n` : '') +
+                (paymentsList ? `🛒 *வசூல் / வரவு:*\n${paymentsList}\n\n` : '') +
+                (!chargesList && !paymentsList ? `📭 கணக்கு விவரங்கள் இல்லை\n\n` : '') +
                 `━━━━━━━━━━━━━━━━━\n` +
                 `💰 *கணக்கு சுருக்கம்*\n` +
                 `━━━━━━━━━━━━━━━━━\n` +
-                `▪️ மொத்த வரவு          : ${formatCurrency(totalAdded)}\n` +
-                `▪️ மொத்த கழிவு          : ${formatCurrency(totalDeducted)}\n` +
+                `▪️ மொத்த கடன்          : ${formatCurrency(totalAdded)}\n` +
+                `▪️ மொத்த வரவு          : ${formatCurrency(totalDeducted)}\n` +
                 `━━━━━━━━━━━━━━━━━\n` +
                 `✅ *தற்போதைய இருப்பு : ${formatCurrency(currentBalance)}*\n` +
                 `━━━━━━━━━━━━━━━━━\n\n` +
@@ -118,12 +170,13 @@ export default function WhatsAppSharePage() {
 
             setRenderData({
                 customer,
-                monthTxns,
-                monthAdvances,
+                monthTxns: chargesTxns,
+                monthAdvances: manualDebts,
                 totalAdded,
                 totalDeducted,
                 net: totalAdded - totalDeducted,
-                balance: currentBalance
+                balance: currentBalance,
+                allPayments // Pass all payments to the renderer
             });
             setRenderType('payslip');
         }
@@ -148,7 +201,7 @@ export default function WhatsAppSharePage() {
                 pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
                 const filename = type === 'invoice'
                     ? `invoice-${customer.name}-latest.pdf`
-                    : `payslip-${customer.name}-${selectedMonth}.pdf`;
+                    : `payslip-${customer.name}-fullhistory.pdf`;
                 pdf.save(filename);
 
                 // Open WhatsApp with pre-built message
@@ -427,125 +480,153 @@ export default function WhatsAppSharePage() {
 
                         <div style={{ padding: '32px 40px' }}>
                             {/* Header */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-                                <div>
-                                    <h1 style={{ fontSize: '22px', fontWeight: 900, color: '#7c3aed', margin: '0 0 6px 0', letterSpacing: '-0.5px' }}>{settings.shopName}</h1>
-                                    <div style={{ fontSize: '11px', color: '#64748b', lineHeight: '1.6' }}>
-                                        {settings.address && <div>{settings.address}</div>}
-                                        {settings.mobile && <div>📞 {settings.mobile}</div>}
-                                    </div>
-                                </div>
-                                <div style={{ textAlign: 'right' }}>
-                                    <div style={{ display: 'inline-block', padding: '6px 20px', background: 'linear-gradient(135deg, #7c3aed, #a78bfa)', color: 'white', borderRadius: '100px', fontWeight: 800, fontSize: '14px', letterSpacing: '1px' }}>
-                                        {language === 'ta' ? 'பேஸ்லிப்' : 'PAYSLIP'}
-                                    </div>
-                                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#334155', marginTop: '8px' }}>{selectedMonth}</div>
+                            <div style={{ textAlign: 'center', borderBottom: '2px solid #f1f5f9', paddingBottom: '24px', marginBottom: '24px' }}>
+                                {settings.logo && <img src={settings.logo} alt="Logo" style={{ width: '60px', height: '60px', marginBottom: '12px', borderRadius: '10px' }} />}
+                                <h2 style={{ fontSize: '26px', fontWeight: 900, color: '#7c3aed', margin: '0', letterSpacing: '-0.5px' }}>{settings.shopName}</h2>
+                                <p style={{ fontSize: '11px', color: '#64748b', margin: '6px 0 0', maxWidth: '400px', marginLeft: 'auto', marginRight: 'auto' }}>{settings.address}</p>
+                                <div style={{ marginTop: '16px', display: 'inline-block', padding: '6px 24px', background: '#7c3aed', color: 'white', borderRadius: '100px', fontWeight: 800, fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                    {language === 'ta' ? 'பேஸ்லிப் - முழு வரலாறு' : 'PAYSLIP - Full History'}
                                 </div>
                             </div>
 
-                            <div style={{ height: '1px', background: '#e2e8f0', marginBottom: '24px' }} />
-
                             {/* Customer + Balance */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '28px' }}>
-                                <div style={{ background: '#f8fafc', padding: '16px 20px', borderRadius: '8px', borderLeft: '4px solid #7c3aed', flex: '0 0 55%' }}>
-                                    <div style={{ fontSize: '9px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '8px' }}>
-                                        {language === 'ta' ? 'வாடிக்கையாளர் விவரம்' : 'CUSTOMER DETAILS'}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: '0', background: '#fafafa', borderRadius: '12px', overflow: 'hidden', border: '1px solid #f1f5f9', marginBottom: '32px' }}>
+                                <div style={{ padding: '20px 24px' }}>
+                                    <div style={{ fontSize: '9px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '1px', marginBottom: '6px' }}>{language === 'ta' ? 'வாடிக்கையாளர் விவரம்' : 'CUSTOMER DETAILS'}</div>
+                                    <div style={{ fontSize: '18px', fontWeight: 800, color: '#1e293b' }}>{renderData.customer?.name}</div>
+                                    <div style={{ fontSize: '12px', color: '#64748b', marginTop: '4px' }}>
+                                        <span style={{ opacity: 0.7 }}>ID:</span> <span style={{ fontWeight: 700, color: '#7c3aed' }}>{renderData.customer?.id}</span>
                                     </div>
-                                    <div style={{ fontSize: '16px', fontWeight: 800, color: '#0f172a', marginBottom: '4px' }}>{renderData.customer?.name}</div>
-                                    <div style={{ fontSize: '12px', color: '#475569', lineHeight: '1.5' }}>
-                                        <div style={{ fontFamily: 'monospace', color: '#7c3aed' }}>ID: {renderData.customer?.id}</div>
-                                        {renderData.customer?.village && <div>📍 {renderData.customer.village}</div>}
-                                    </div>
+                                    <div style={{ fontSize: '12px', color: '#64748b' }}>{renderData.customer?.village}</div>
                                 </div>
-                                <div style={{ textAlign: 'center', flex: '0 0 35%', background: '#f5f3ff', padding: '16px', borderRadius: '8px', border: '2px solid #ddd6fe' }}>
-                                    <div style={{ fontSize: '9px', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '1.5px', marginBottom: '6px' }}>
-                                        {language === 'ta' ? 'தற்போதைய இருப்பு' : 'CURRENT BALANCE'}
+                                <div style={{ width: '1px', background: '#e2e8f0', height: '80%', margin: 'auto 0' }} />
+                                <div style={{ padding: '20px 24px', textAlign: 'right' }}>
+                                    <div style={{ fontSize: '9px', color: '#94a3b8', textTransform: 'uppercase', fontWeight: 800, letterSpacing: '1px', marginBottom: '6px' }}>
+                                        {renderData.balance > 0
+                                            ? (language === 'ta' ? 'நிலுவைத் தொகை' : 'OUTSTANDING BALANCE')
+                                            : (language === 'ta' ? 'வரவு உள்ளது' : 'AVAILABLE CREDIT')}
                                     </div>
-                                    <div style={{ fontSize: '26px', fontWeight: 900, color: '#7c3aed' }}>{formatCurrency(renderData.balance)}</div>
+                                    <div style={{ fontSize: '30px', fontWeight: 900, color: renderData.balance > 0 ? '#dc2626' : '#7c3aed', lineHeight: '1' }}>
+                                        {renderData.balance > 0 ? '+' : (renderData.balance < 0 ? '-' : '')}{formatCurrency(Math.abs(renderData.balance))}
+                                    </div>
+                                    <div style={{ fontSize: '10px', color: renderData.balance > 0 ? '#dc2626' : '#16a34a', fontWeight: 700, marginTop: '8px' }}>
+                                        {renderData.balance > 0 ? (language === 'ta' ? 'நிலுவையில்' : 'Payment Due') : (language === 'ta' ? 'வரவு உள்ளது' : 'Available Credit')}
+                                    </div>
                                 </div>
                             </div>
 
                             {/* Transaction Table */}
-                            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px' }}>
-                                <thead>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '32px', tableLayout: 'fixed' }}>
+                                <colgroup>
+                                    <col style={{ width: '100px' }} />
+                                    <col style={{ width: 'auto' }} />
+                                    <col style={{ width: '140px' }} />
+                                    <col style={{ width: '130px' }} />
+                                </colgroup>
+                                <thead style={{ background: '#7c3aed' }}>
                                     <tr>
-                                        <th style={{ padding: '12px 10px', textAlign: 'left', fontSize: '9px', fontWeight: 800, color: 'white', background: '#7c3aed', textTransform: 'uppercase', letterSpacing: '1px', borderRadius: '4px 0 0 0' }}>{language === 'ta' ? 'தேதி' : 'DATE'}</th>
-                                        <th style={{ padding: '12px 10px', textAlign: 'left', fontSize: '9px', fontWeight: 800, color: 'white', background: '#7c3aed', textTransform: 'uppercase', letterSpacing: '1px' }}>{language === 'ta' ? 'விவரம்' : 'DESCRIPTION'}</th>
-                                        <th style={{ padding: '12px 10px', textAlign: 'center', fontSize: '9px', fontWeight: 800, color: 'white', background: '#7c3aed', textTransform: 'uppercase', letterSpacing: '1px' }}>{language === 'ta' ? 'வகை' : 'TYPE'}</th>
-                                        <th style={{ padding: '12px 10px', textAlign: 'right', fontSize: '9px', fontWeight: 800, color: 'white', background: '#7c3aed', textTransform: 'uppercase', letterSpacing: '1px', borderRadius: '0 4px 0 0' }}>{language === 'ta' ? 'தொகை' : 'AMOUNT'}</th>
+                                        <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 800, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>{language === 'ta' ? 'தேதி' : 'DATE'}</th>
+                                        <th style={{ padding: '12px 14px', textAlign: 'left', fontSize: '10px', fontWeight: 800, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>{language === 'ta' ? 'விவரம்' : 'DESCRIPTION'}</th>
+                                        <th style={{ padding: '12px 14px', textAlign: 'center', fontSize: '10px', fontWeight: 800, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>{language === 'ta' ? 'வகை' : 'TYPE'}</th>
+                                        <th style={{ padding: '12px 14px', textAlign: 'right', fontSize: '10px', fontWeight: 800, color: 'white', textTransform: 'uppercase', letterSpacing: '1px' }}>{language === 'ta' ? 'தொகை' : 'AMOUNT'}</th>
                                     </tr>
                                 </thead>
-                                <tbody>
-                                    {renderData.monthAdvances?.map((adv: any, i: number) => (
-                                        <tr key={adv.id} style={{ background: i % 2 === 0 ? '#ffffff' : '#faf5ff' }}>
-                                            <td style={{ padding: '10px', fontSize: '12px', borderBottom: '1px solid #f1f5f9' }}>{formatDate(adv.date)}</td>
-                                            <td style={{ padding: '10px', fontSize: '12px', fontWeight: 600, borderBottom: '1px solid #f1f5f9' }}>{adv.notes || (language === 'ta' ? 'தொகை சேர்க்கப்பட்டது' : 'Amount Added')}</td>
-                                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
-                                                <span style={{ display: 'inline-block', padding: '2px 10px', background: '#dcfce7', color: '#15803d', borderRadius: '100px', fontSize: '10px', fontWeight: 700 }}>
-                                                    {language === 'ta' ? 'வரவு' : 'Credit'}
-                                                </span>
+                                {groupedRenderData.map((group: any) => (
+                                    <tbody key={group.monthKey}>
+                                        <tr style={{ background: '#f5f3ff', borderBottom: '1px solid #7c3aed' }}>
+                                            <td colSpan={4} style={{ padding: '8px 14px' }}>
+                                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                    <span style={{ fontWeight: 800, color: '#7c3aed', fontSize: '11px', textTransform: 'uppercase' }}>📅 {group.monthLabel}</span>
+                                                    <span style={{ fontSize: '9px', color: '#64748b' }}>
+                                                        {language === 'ta' ? 'தொடக்க இருப்பு' : 'Opening balance'}: <b style={{ color: '#1e293b' }}>{group.openingBalance > 0 ? '+' : ''}{formatCurrency(group.openingBalance)}</b>
+                                                    </span>
+                                                </div>
                                             </td>
-                                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#16a34a', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }}>+{formatCurrency(adv.amount)}</td>
                                         </tr>
-                                    ))}
-                                    {renderData.monthTxns?.map((txn: any, i: number) => (
-                                        <tr key={txn.id} style={{ background: (renderData.monthAdvances?.length + i) % 2 === 0 ? '#ffffff' : '#faf5ff' }}>
-                                            <td style={{ padding: '10px', fontSize: '12px', borderBottom: '1px solid #f1f5f9' }}>{formatDate(txn.date)}</td>
-                                            <td style={{ padding: '10px', fontSize: '12px', fontWeight: 600, borderBottom: '1px solid #f1f5f9' }}>{txn.items.map((it: any) => it.productName).join(', ')}</td>
-                                            <td style={{ padding: '10px', textAlign: 'center', borderBottom: '1px solid #f1f5f9' }}>
-                                                <span style={{ display: 'inline-block', padding: '2px 10px', background: '#fef2f2', color: '#dc2626', borderRadius: '100px', fontSize: '10px', fontWeight: 700 }}>
-                                                    {language === 'ta' ? 'கழிவு' : 'Debit'}
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: '10px', textAlign: 'right', fontWeight: 700, color: '#dc2626', fontSize: '13px', borderBottom: '1px solid #f1f5f9' }}>-{formatCurrency(txn.totalAmount)}</td>
+                                        {group.items.map((item: any, idx: number) => (
+                                            <tr key={`${item.id}-${idx}`} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                                <td style={{ padding: '10px 14px', fontSize: '10px', color: '#1e293b' }}>{formatDate(item.date)}</td>
+                                                <td style={{ padding: '10px 14px', fontSize: '11px', color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                    {item.items ? item.items.map((it: any) => it.productName).join(', ') : (item.notes || item.reason || 'Record')}
+                                                </td>
+                                                <td style={{ padding: '10px 14px', textAlign: 'center' }}>
+                                                    <div style={{
+                                                        display: 'inline-block',
+                                                        padding: '3px 8px',
+                                                        borderRadius: '4px',
+                                                        fontSize: '9px',
+                                                        fontWeight: 800,
+                                                        background: item.type === 'charge' ? '#fff7ed' : '#f0fdf4',
+                                                        color: item.type === 'charge' ? '#c2410c' : '#15803d',
+                                                        border: `1px solid ${item.type === 'charge' ? '#fdba74' : '#bbf7d0'}`,
+                                                        width: '110px'
+                                                    }}>
+                                                        {item.type === 'charge' ? (language === 'ta' ? 'கூடுதல் வரவு (+)' : 'Added Credit (+)') : (language === 'ta' ? 'கழிவுகள் (-)' : 'Deduction (-)')}
+                                                    </div>
+                                                </td>
+                                                <td style={{ padding: '10px 14px', textAlign: 'right', fontWeight: 800, fontSize: '12px', color: item.type === 'charge' ? '#dc2626' : '#16a34a' }}>
+                                                    {item.type === 'charge' ? '+' : '-'}{formatCurrency(item.amount || item.totalAmount)}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        <tr style={{ background: '#f8fafc' }}>
+                                            <td colSpan={3} style={{ textAlign: 'right', fontSize: '10px', color: '#64748b', padding: '8px 14px', fontWeight: 600 }}>{language === 'ta' ? 'மாத முடிவு இருப்பு' : 'Monthly Closing Balance'}:</td>
+                                            <td style={{ textAlign: 'right', fontSize: '11px', fontWeight: 800, color: '#7c3aed', padding: '8px 14px' }}>{group.closingBalance > 0 ? '+' : ''}{formatCurrency(group.closingBalance)}</td>
                                         </tr>
-                                    ))}
-                                    {(renderData.monthAdvances?.length === 0 && renderData.monthTxns?.length === 0) && (
+                                    </tbody>
+                                ))}
+                                {groupedRenderData.length === 0 && (
+                                    <tbody>
                                         <tr>
-                                            <td colSpan={4} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
-                                                {language === 'ta' ? 'இந்த மாதத்தில் பதிவுகள் இல்லை' : 'No records for this month'}
+                                            <td colSpan={4} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8', fontSize: '13px' }}>
+                                                {language === 'ta' ? 'எந்த பதிவுகளும் இல்லை' : 'No records found'}
                                             </td>
                                         </tr>
-                                    )}
-                                </tbody>
+                                    </tbody>
+                                )}
                             </table>
 
-                            {/* Summary Cards */}
-                            <div style={{ display: 'flex', gap: '12px', marginTop: '20px' }}>
-                                <div style={{ flex: 1, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '14px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: '9px', fontWeight: 800, color: '#16a34a', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>
-                                        {language === 'ta' ? 'மொத்த வரவு' : 'Total Credit'}
-                                    </div>
-                                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#15803d' }}>{formatCurrency(renderData.totalAdded)}</div>
-                                </div>
-                                <div style={{ flex: 1, background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', padding: '14px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: '9px', fontWeight: 800, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>
-                                        {language === 'ta' ? 'மொத்த கழிவு' : 'Total Debit'}
-                                    </div>
-                                    <div style={{ fontSize: '18px', fontWeight: 900, color: '#dc2626' }}>{formatCurrency(renderData.totalDeducted)}</div>
-                                </div>
-                                <div style={{ flex: 1, background: '#f5f3ff', border: '2px solid #c4b5fd', borderRadius: '8px', padding: '14px', textAlign: 'center' }}>
-                                    <div style={{ fontSize: '9px', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: '1px', marginBottom: '4px' }}>
-                                        {language === 'ta' ? 'நிகர மாற்றம்' : 'Net Change'}
-                                    </div>
-                                    <div style={{ fontSize: '18px', fontWeight: 900, color: renderData.net >= 0 ? '#15803d' : '#dc2626' }}>
-                                        {renderData.net >= 0 ? '+' : ''}{formatCurrency(renderData.net)}
-                                    </div>
-                                </div>
-                            </div>
+                            {/* Summary Footer */}
+                            <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '-16px' }}>
+                                <tfoot>
+                                    <tr style={{ background: '#f8fafc', borderTop: '2px solid #7c3aed' }}>
+                                        <td colSpan={2} rowSpan={3} style={{ padding: '20px', borderRight: '1px solid #e2e8f0', fontSize: '10px', color: '#64748b' }}>
+                                            <div style={{ fontWeight: 800, color: '#1e293b', textTransform: 'uppercase', marginBottom: '6px' }}>{language === 'ta' ? 'அறிக்கை சுருக்கம்' : 'Statement Summary'}</div>
+                                            {language === 'ta' ? 'இந்த அறிக்கை தேர்ந்தெடுக்கப்பட்ட வாடிக்கையாளரின் கடன் மற்றும் வரவு விவரங்களைக் காட்டுகிறது.' : 'This statement displays all charges and payments for the selected customer for the full history.'}
+                                        </td>
+                                        <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: '#64748b' }}>{language === 'ta' ? 'மொத்த கடன்' : 'Total Charges'} (+)</td>
+                                        <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: '12px', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(renderData.totalAdded)}</td>
+                                    </tr>
+                                    <tr style={{ background: '#f8fafc' }}>
+                                        <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: '10px', fontWeight: 700, color: '#64748b' }}>{language === 'ta' ? 'மொத்த வரவு' : 'Total Payments'} (-)</td>
+                                        <td style={{ textAlign: 'right', padding: '10px 16px', fontSize: '12px', fontWeight: 800, color: '#16a34a' }}>{formatCurrency(renderData.totalDeducted)}</td>
+                                    </tr>
+                                    <tr style={{ background: '#7c3aed', color: 'white' }}>
+                                        <td style={{ textAlign: 'right', padding: '12px 16px', fontSize: '11px', fontWeight: 800 }}>{language === 'ta' ? 'நிகர மாற்றம்' : 'TOTAL NET CHANGE'}</td>
+                                        <td style={{ textAlign: 'right', padding: '12px 16px', fontSize: '16px', fontWeight: 950 }}>{renderData.net >= 0 ? '+' : ''}{formatCurrency(renderData.net)}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
 
                             {/* Signatures */}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '50px' }}>
-                                <div style={{ textAlign: 'center', width: '180px' }}>
-                                    <div style={{ height: '50px' }} />
-                                    <div style={{ borderTop: '2px solid #cbd5e1', paddingTop: '8px', fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                        {language === 'ta' ? 'வாடிக்கையாளர் கையொப்பம்' : 'Customer Signature'}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '60px', marginTop: '60px', padding: '0 20px' }}>
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ height: '50px' }}></div>
+                                    <div style={{ borderTop: '2px solid #e2e8f0', paddingTop: '12px' }}>
+                                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                            {language === 'ta' ? 'வாடிக்கையாளர் கையொப்பம்' : 'Customer Signature'}
+                                        </div>
                                     </div>
                                 </div>
-                                <div style={{ textAlign: 'center', width: '180px' }}>
-                                    <div style={{ height: '50px' }} />
-                                    <div style={{ borderTop: '2px solid #cbd5e1', paddingTop: '8px', fontSize: '10px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                                        {language === 'ta' ? 'அங்கீகரிக்கப்பட்ட கையொப்பம்' : 'Authorized Signature'}
+                                <div style={{ textAlign: 'center' }}>
+                                    <div style={{ height: '50px' }}></div>
+                                    <div style={{ borderTop: '2px solid #e2e8f0', paddingTop: '12px' }}>
+                                        <div style={{ fontSize: '10px', fontWeight: 800, color: '#64748b', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                                            {language === 'ta' ? 'அங்கீகரிக்கப்பட்ட கையொப்பம்' : 'Authorized Signature'}
+                                        </div>
+                                        <div style={{ fontSize: '8px', color: '#94a3b8', marginTop: '4px' }}>
+                                            {language === 'ta' ? 'உருவாக்கப்பட்டது' : 'Generated on'}: {formatDate(new Date().toISOString())}
+                                        </div>
                                     </div>
                                 </div>
                             </div>

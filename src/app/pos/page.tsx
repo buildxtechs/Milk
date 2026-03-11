@@ -5,9 +5,10 @@ import { useStore, useCustomers, useProducts, useTransactions, useAdvances, useE
 import { translations } from '@/lib/translations';
 import { Transaction, TransactionItem, PaymentMode } from '@/lib/types';
 import { generateInvoiceId, generateAdvanceId, formatCurrency, todayStr, currentMonthStr, getMonthlyPurchaseCount, getNextEligibleDate, formatDate, generateWhatsAppLink, parseTemplate, generatePOSWhatsAppMessage, calculateCustomerBalance } from '@/lib/utils';
-import { ShoppingCart, Plus, Minus, Trash2, AlertTriangle, CheckCircle, Search, X, Info, Send, Fingerprint } from 'lucide-react';
+import { ShoppingCart, Plus, Minus, Trash2, AlertTriangle, CheckCircle, Search, X, Info, Send, Fingerprint, Printer } from 'lucide-react';
 import CustomerDetailsModal from '@/components/customers/CustomerDetailsModal';
 import SignaturePad from '@/components/pos/SignaturePad';
+import ThermalInvoice from '@/components/pos/ThermalInvoice';
 
 export default function POSPage() {
     const language = useStore((s) => s.language);
@@ -32,7 +33,7 @@ export default function POSPage() {
     const [search, setSearch] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('all');
     const [toast, setToast] = useState('');
-    const [saleSuccess, setSaleSuccess] = useState<Transaction | null>(null);
+    const [saleSuccess, setSaleSuccess] = useState<{ txn: Transaction; oldBal: number; currentBal: number; customerName: string; customerPhone: string } | null>(null);
     const [showCustomerDetails, setShowCustomerDetails] = useState(false);
     const [showSignaturePad, setShowSignaturePad] = useState(false);
     const [customerSearch, setCustomerSearch] = useState('');
@@ -119,6 +120,11 @@ export default function POSPage() {
         if (cart.length === 0) { showToast(language === 'ta' ? 'கார்ட் காலியாக உள்ளது' : 'Cart is empty'); return; }
         if (isLimitReached) { showToast(t.purchaseLimitMsg); return; }
 
+        // Capture balances BEFORE any updates
+        const oldBal = calculateCustomerBalance(selectedCustomerId, advances, deductions);
+        const currentBal = paymentMode === 'advance' ? oldBal + grandTotal : oldBal;
+        const customer = selectedCustomer;
+
         let advanceUsed = 0;
         if (paymentMode === 'advance') {
             advanceUsed = grandTotal;
@@ -158,23 +164,28 @@ export default function POSPage() {
         // Update stock
         cart.forEach(item => updateStock(item.productId, -item.quantity));
 
-        // Auto-send WhatsApp message if customer has WhatsApp
-        if (selectedCustomer?.whatsapp) {
-            const currentBal = calculateCustomerBalance(selectedCustomerId, advances, deductions);
-            const oldBal = currentBal - txn.totalAmount;
-            const msg = generatePOSWhatsAppMessage(txn, selectedCustomer.name, oldBal, currentBal, settings);
+        const custName = customer?.name || '';
+        const custPhone = customer?.whatsapp || customer?.mobile || '';
 
-            setTimeout(() => {
-                window.open(generateWhatsAppLink(selectedCustomer?.whatsapp || '', msg), '_blank');
-            }, 1000);
-        }
-
-        setSaleSuccess(txn);
+        setSaleSuccess({ txn, oldBal, currentBal, customerName: custName, customerPhone: custPhone });
         setNotes('');
         setBudget(0);
         setCustomerSearch('');
         setSelectedCustomerId('');
         setShowSignaturePad(false);
+
+        // Auto-trigger print first, then WhatsApp
+        setTimeout(() => {
+            window.print();
+        }, 500);
+
+        // Auto-send WhatsApp message after print dialog
+        if (customer?.whatsapp) {
+            const msg = generatePOSWhatsAppMessage(txn, custName, oldBal, currentBal, settings);
+            setTimeout(() => {
+                window.open(generateWhatsAppLink(customer.whatsapp, msg), '_blank');
+            }, 2000);
+        }
     };
 
     const handleCompleteSale = () => {
@@ -493,9 +504,9 @@ export default function POSPage() {
                 </div>
 
 
-                {/* Sale Success Modal */}
+                {/* Sale Success Modal — hidden during print */}
                 {saleSuccess && (
-                    <div className="modal-overlay">
+                    <div className="modal-overlay no-print">
                         <div className="modal">
                             <div className="modal-header" style={{ background: 'var(--primary-light)', flexDirection: 'column', alignItems: 'center', padding: '24px' }}>
                                 <button className="btn btn-ghost btn-icon" style={{ position: 'absolute', top: '12px', right: '12px' }} onClick={() => setSaleSuccess(null)}><X size={18} /></button>
@@ -517,10 +528,10 @@ export default function POSPage() {
                             <div className="modal-body">
                                 <div style={{ textAlign: 'center', marginBottom: '20px' }}>
                                     <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t.invoiceNumber}</div>
-                                    <div style={{ fontSize: '24px', fontWeight: 800, fontFamily: 'monospace', color: 'var(--primary)' }}>{saleSuccess.id}</div>
+                                    <div style={{ fontSize: '24px', fontWeight: 800, fontFamily: 'monospace', color: 'var(--primary)' }}>{saleSuccess.txn.id}</div>
                                 </div>
                                 <div style={{ background: 'var(--surface-2)', borderRadius: 'var(--radius)', padding: '16px' }}>
-                                    {saleSuccess.items.map(item => (
+                                    {saleSuccess.txn.items.map(item => (
                                         <div key={item.productId} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '13px' }}>
                                             <span>{item.productName} × {item.quantity}</span>
                                             <span style={{ fontWeight: 600 }}>{formatCurrency(item.total)}</span>
@@ -528,73 +539,41 @@ export default function POSPage() {
                                     ))}
                                     <div style={{ borderTop: '1px solid var(--border)', paddingTop: '8px', marginTop: '8px', display: 'flex', justifyContent: 'space-between', fontWeight: 800, fontSize: '16px' }}>
                                         <span>{t.grandTotal}</span>
-                                        <span style={{ color: 'var(--primary)' }}>{formatCurrency(saleSuccess.totalAmount)}</span>
+                                        <span style={{ color: 'var(--primary)' }}>{formatCurrency(saleSuccess.txn.totalAmount)}</span>
                                     </div>
-                                    {saleSuccess.advanceUsed && (
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--success)', marginTop: '4px' }}>
-                                            <span>{t.advanceUsed}</span>
-                                            <span>-{formatCurrency(saleSuccess.advanceUsed)}</span>
+                                    <div style={{ marginTop: '8px', borderTop: '1px dashed var(--border)', paddingTop: '8px' }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                            <span>{language === 'ta' ? 'பழைய இருப்பு' : 'Old Balance'}</span>
+                                            <span>{formatCurrency(saleSuccess.oldBal)}</span>
                                         </div>
-                                    )}
-                                    {saleSuccess.balanceDue && saleSuccess.balanceDue > 0 ? (
-                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', color: 'var(--danger)', marginTop: '4px', fontWeight: 700 }}>
-                                            <span>{t.balanceDue}</span>
-                                            <span>{formatCurrency(saleSuccess.balanceDue)}</span>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700, color: 'var(--primary)', marginTop: '4px' }}>
+                                            <span>{language === 'ta' ? 'தற்போதைய இருப்பு' : 'Current Balance'}</span>
+                                            <span>{formatCurrency(saleSuccess.currentBal)}</span>
                                         </div>
-                                    ) : null}
+                                    </div>
                                 </div>
                                 <div style={{ marginTop: '12px', display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                                    <span className={`badge ${saleSuccess.paymentMode === 'cash' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '13px', padding: '6px 12px' }}>
-                                        {saleSuccess.paymentMode === 'cash' ? t.cash : (language === 'ta' ? 'கணக்கில் சேர்க்கப்பட்டது (Credit)' : 'Added to Account (Credit)')}
+                                    <span className={`badge ${saleSuccess.txn.paymentMode === 'cash' ? 'badge-blue' : 'badge-green'}`} style={{ fontSize: '13px', padding: '6px 12px' }}>
+                                        {saleSuccess.txn.paymentMode === 'cash' ? t.cash : (language === 'ta' ? 'கணக்கில் சேர்க்கப்பட்டது (Credit)' : 'Added to Account (Credit)')}
                                     </span>
                                 </div>
-                                {selectedCustomer?.whatsapp && (
+                                {saleSuccess.customerPhone && (
                                     <button
                                         className="btn btn-secondary w-full"
                                         style={{ marginTop: '16px', color: '#25D366', borderColor: '#25D366' }}
                                         onClick={() => {
-                                            const currentBal = calculateCustomerBalance(saleSuccess.customerId, advances, deductions);
-                                            const oldBal = currentBal - saleSuccess.totalAmount;
-                                            const customer = customers.find(c => c.id === saleSuccess.customerId);
-                                            const msg = generatePOSWhatsAppMessage(saleSuccess, customer?.name || '', oldBal, currentBal, settings);
-                                            window.open(generateWhatsAppLink(customer?.whatsapp || '', msg), '_blank');
+                                            const msg = generatePOSWhatsAppMessage(saleSuccess.txn, saleSuccess.customerName, saleSuccess.oldBal, saleSuccess.currentBal, settings);
+                                            window.open(generateWhatsAppLink(saleSuccess.customerPhone, msg), '_blank');
                                         }}
                                     >
                                         <Send size={16} /> {t.sendToWhatsapp}
                                     </button>
                                 )}
-
-                                <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                                    <div style={{ textAlign: 'center' }}>
-                                        {saleSuccess.validationMethod === 'fingerprint' ? (
-                                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                                                <Fingerprint size={30} style={{ color: 'var(--primary)', marginBottom: '4px' }} />
-                                                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{t.fingerprint}</div>
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <div style={{ width: '100px', borderBottom: '1px solid var(--border)', marginBottom: '4px', height: '30px' }}>
-                                                    {saleSuccess.signature && <img src={saleSuccess.signature} alt="sig" style={{ maxHeight: '100%', maxWidth: '100%' }} />}
-                                                </div>
-                                                <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{t.customerSignature}</div>
-                                            </>
-                                        )}
-                                    </div>
-                                    <div style={{ textAlign: 'right' }}>
-                                        <div style={{ fontSize: '9px', color: 'var(--text-muted)', marginBottom: '10px' }}>
-                                            {t.generatedOn}: {formatDate(new Date().toISOString())} {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                        </div>
-                                        <div style={{ textAlign: 'center' }}>
-                                            <div style={{ width: '100px', borderBottom: '1px solid var(--border)', marginBottom: '4px', height: '30px' }}></div>
-                                            <div style={{ fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', color: 'var(--text-muted)' }}>{t.authorizedSignature}</div>
-                                        </div>
-                                    </div>
-                                </div>
                             </div>
                             <div className="modal-footer">
                                 <button className="btn btn-secondary" onClick={() => setSaleSuccess(null)}>{t.close}</button>
-                                <button className="btn btn-primary" onClick={() => { setSaleSuccess(null); window.location.href = '/invoices'; }}>
-                                    {t.printInvoice}
+                                <button className="btn btn-primary" onClick={() => window.print()}>
+                                    <Printer size={14} /> {t.printInvoice}
                                 </button>
                             </div>
                         </div>
@@ -620,6 +599,20 @@ export default function POSPage() {
                     />
                 )}
             </div>
+
+            {/* Thermal Invoice — OUTSIDE grid, only visible during print */}
+            {saleSuccess && (
+                <div id="thermal-print-area" className="print-only">
+                    <ThermalInvoice
+                        transaction={saleSuccess.txn}
+                        customerName={saleSuccess.customerName}
+                        customerPhone={saleSuccess.customerPhone}
+                        oldBalance={saleSuccess.oldBal}
+                        currentBalance={saleSuccess.currentBal}
+                        settings={settings}
+                    />
+                </div>
+            )}
         </div>
     );
 }

@@ -93,6 +93,20 @@ export default function AmountCreditsPage() {
 
         showToast(language === 'ta' ? 'தொகை கழிக்கப்பட்டது' : 'Amount added to deductions');
         setInlineAmounts(prev => ({ ...prev, [customerId]: '' }));
+
+        // WhatsApp Notification
+        const customer = getCustomer(customerId);
+        if (customer && customer.whatsapp) {
+            const currentTotalBalance = calculateCustomerBalance(customerId, advances, deductions);
+            const newTotalBalance = Math.max(0, currentTotalBalance - amount);
+
+            const msg = parseTemplate(settings.whatsappAmountTemplate, {
+                name: customer.name,
+                amount: amount,
+                balance: newTotalBalance
+            });
+            window.open(generateWhatsAppLink(customer.whatsapp, msg), '_blank');
+        }
     };
 
     // Handle save credit from modal
