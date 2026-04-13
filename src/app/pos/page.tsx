@@ -117,82 +117,100 @@ export default function POSPage() {
         if (!selectedCustomerId) { showToast(language === 'ta' ? 'வாடிக்கையாளரை தேர்வு செய்யவும்' : 'Please select a customer'); return; }
         if (cart.length === 0) { showToast(language === 'ta' ? 'கார்ட் காலியாக உள்ளது' : 'Cart is empty'); return; }
 
+        try {
+            // 1. Capture data needed for success UI instantly
+            const oldBal = calculateCustomerBalance(selectedCustomerId, advances, deductions);
+            const currentBal = paymentMode === 'advance' ? oldBal + grandTotal : oldBal;
+            const customer = selectedCustomer;
+            const custName = customer?.name || '';
+            const custPhone = customer?.whatsapp || customer?.mobile || '';
 
-        // Capture balances BEFORE any updates
-        const oldBal = calculateCustomerBalance(selectedCustomerId, advances, deductions);
-        const currentBal = paymentMode === 'advance' ? oldBal + grandTotal : oldBal;
-        const customer = selectedCustomer;
+            // 2. Prepare transaction object
+            let advanceUsed = 0;
+            if (paymentMode === 'advance') {
+                advanceUsed = grandTotal;
+            }
 
-        let advanceUsed = 0;
-        if (paymentMode === 'advance') {
-            advanceUsed = grandTotal;
-            // Instead of deducting, we add to the customer's balance (debt)
-            const advId = generateAdvanceId(advances.map(a => a.id));
-            addAdvance({
-                id: advId,
+            const txnId = generateInvoiceId(transactions.map(t => t.id));
+            const txn: Transaction = {
+                id: txnId,
                 customerId: selectedCustomerId,
                 date: saleDate,
-                amount: grandTotal,
-                remainingBalance: grandTotal,
-                notes: `POS Purchase: ${generateInvoiceId(transactions.map(t => t.id))}`,
-                createdAt: new Date().toISOString()
-            });
-        }
+                items: [...cart], // Clone cart to avoid reference issues
+                subtotal,
+                discount,
+                totalAmount: grandTotal,
+                budgetProvided: budget > 0 ? budget : undefined,
+                advanceUsed: advanceUsed > 0 ? advanceUsed : undefined,
+                balanceDue: (grandTotal - (budget > 0 ? budget : 0) - (paymentMode === 'advance' ? advanceUsed : 0)) > 0
+                    ? (grandTotal - (budget > 0 ? budget : 0) - (paymentMode === 'advance' ? advanceUsed : 0)) : 0,
+                paymentMode,
+                validationMethod: method || validationMethod,
+                signature,
+                fingerprintName: name,
+                notes,
+                createdAt: new Date().toISOString(),
+            };
 
-        const txn: Transaction = {
-            id: generateInvoiceId(transactions.map(t => t.id)),
-            customerId: selectedCustomerId,
-            date: saleDate,
-            items: cart,
-            subtotal,
-            discount,
-            totalAmount: grandTotal,
-            budgetProvided: budget > 0 ? budget : undefined,
-            advanceUsed: advanceUsed > 0 ? advanceUsed : undefined,
-            balanceDue: (grandTotal - (budget > 0 ? budget : 0) - (paymentMode === 'advance' ? advanceUsed : 0)) > 0
-                ? (grandTotal - (budget > 0 ? budget : 0) - (paymentMode === 'advance' ? advanceUsed : 0)) : 0,
-            paymentMode,
-            validationMethod: method || validationMethod,
-            signature,
-            fingerprintName: name,
-            notes,
-            createdAt: new Date().toISOString(),
-        };
+            // 3. CLOSE MODAL IMMEDIATELY for best UX
+            setShowSignaturePad(false);
 
-        addTransaction(txn);
-        // Update stock
-        cart.forEach(item => updateStock(item.productId, -item.quantity));
-
-        const custName = customer?.name || '';
-        const custPhone = customer?.whatsapp || customer?.mobile || '';
-
-        // Reset all form state
-        setCart([]);
-        setDiscount(0);
-        setNotes('');
-        setBudget(0);
-        setCustomerSearch('');
-        setSelectedCustomerId('');
-        setShowSignaturePad(false);
-        setSaleDate(todayStr());
-
-        // Set success modal — must happen after clearing other state
-        setSaleSuccess({ txn, oldBal, currentBal, customerName: custName, customerPhone: custPhone });
-
-        // Defer print & WhatsApp until after React renders the success modal
-        requestAnimationFrame(() => {
+            // 4. Defer synchronous heavy operations (Persistence) to keep UI thread alive
             setTimeout(() => {
-                window.print();
-            }, 600);
+                try {
+                    // Update advance if credit mode
+                    if (paymentMode === 'advance') {
+                        const advId = generateAdvanceId(advances.map(a => a.id));
+                        addAdvance({
+                            id: advId,
+                            customerId: selectedCustomerId,
+                            date: saleDate,
+                            amount: grandTotal,
+                            remainingBalance: grandTotal,
+                            notes: `POS Purchase: ${txnId}`,
+                            createdAt: new Date().toISOString()
+                        });
+                    }
 
-            // Auto-send WhatsApp message after print dialog
-            if (customer?.whatsapp) {
-                const msg = generatePOSWhatsAppMessage(txn, custName, oldBal, currentBal, settings);
-                setTimeout(() => {
-                    window.open(generateWhatsAppLink(customer.whatsapp, msg), '_blank');
-                }, 2500);
-            }
-        });
+                    // Save transaction and update stock
+                    addTransaction(txn);
+                    cart.forEach(item => updateStock(item.productId, -item.quantity));
+
+                    // Reset form state
+                    setCart([]);
+                    setDiscount(0);
+                    setNotes('');
+                    setBudget(0);
+                    setCustomerSearch('');
+                    setSelectedCustomerId('');
+                    setSaleDate(todayStr());
+
+                    // Show success modal
+                    setSaleSuccess({ txn, oldBal, currentBal, customerName: custName, customerPhone: custPhone });
+
+                    // Final step: Printing and Notifications
+                    setTimeout(() => {
+                        window.print();
+                        
+                        // Auto-send WhatsApp message after print dialog completes
+                        if (custPhone && customer?.whatsapp) {
+                            const msg = generatePOSWhatsAppMessage(txn, custName, oldBal, currentBal, settings);
+                            setTimeout(() => {
+                                window.open(generateWhatsAppLink(custPhone, msg), '_blank');
+                            }, 1500);
+                        }
+                    }, 1000); // Wait for modal animation to settle
+                } catch (err: any) {
+                    console.error("Sale Processing Error:", err);
+                    alert(t.errorOccurred || "Error processing sale. Check storage space.");
+                }
+            }, 50);
+
+        } catch (err: any) {
+            console.error("Checkout Pre-processing Error:", err);
+            setShowSignaturePad(false);
+            alert(t.errorOccurred || "Error preparing checkout.");
+        }
     };
 
     const handleCompleteSale = () => {

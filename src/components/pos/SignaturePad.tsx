@@ -17,6 +17,8 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
     const [isFingerprinting, setIsFingerprinting] = useState(false);
     const [fingerprintCaptured, setFingerprintCaptured] = useState(false);
     const [fingerprintName, setFingerprintName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+
 
     useEffect(() => {
         if (method !== 'signature') return;
@@ -201,17 +203,20 @@ Alternatively, enable 'chrome://flags/#allow-insecure-localhost' in Chrome.`);
             if (isEmpty) return;
             const canvas = canvasRef.current;
             if (!canvas) return;
-            onSave(canvas.toDataURL('image/png'), 'signature');
+            setIsSaving(true);
+            // Use JPEG with 0.5 quality to save space in localStorage
+            onSave(canvas.toDataURL('image/jpeg', 0.5), 'signature');
         } else {
             if (!fingerprintCaptured) return;
             if (!fingerprintName.trim()) {
                 alert(t.enterName || 'Please enter name');
                 return;
             }
-            // Provide a static fingerprint placeholder or similar identifier
+            setIsSaving(true);
             onSave('FINGERPRINT_CAPTURED', 'fingerprint', fingerprintName);
         }
     };
+
 
     return (
         <div className="modal-overlay">
@@ -329,10 +334,20 @@ Alternatively, enable 'chrome://flags/#allow-insecure-localhost' in Chrome.`);
                     <button
                         className="btn btn-primary"
                         onClick={save}
-                        disabled={method === 'signature' ? isEmpty : !fingerprintCaptured || !fingerprintName.trim()}
+                        disabled={isSaving || (method === 'signature' ? isEmpty : !fingerprintCaptured || !fingerprintName.trim())}
                     >
-                        <Check size={14} /> {t.confirm || 'Confirm'}
+                        {isSaving ? (
+                            <>
+                                <div className="spinner-xs" style={{ marginRight: '8px' }}></div>
+                                {t.loading || '...'}
+                            </>
+                        ) : (
+                            <>
+                                <Check size={14} /> {t.confirm || 'Confirm'}
+                            </>
+                        )}
                     </button>
+
                 </div>
             </div>
         </div>
