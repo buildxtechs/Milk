@@ -349,7 +349,7 @@ export const useStore = create<AppState>()(
                 shopName: 'Theevanam Shop',
                 address: '123, Main Street, Village Name',
                 mobile: '9876543210',
-                maxPurchasesPerMonth: 3,
+                maxPurchasesPerMonth: 1000,
                 enforceCustomerSelection: true,
                 whatsappAmountTemplate: 'வணக்கம் {name}, உங்கள் கணக்கில் ₹{amount} சேர்க்கப்பட்டுள்ளது. உங்கள் தற்போதைய இருப்பு ₹{balance}.',
                 whatsappInvoiceTemplate: 'வணக்கம் {name}, உங்கள் கொள்முதலுக்கு நன்றி! இன்வாய்ஸ்: {invoice}. மொத்தம்: ₹{total}. பயன்படுத்தப்பட்ட முன்பணம்: ₹{advance}. மீதமுள்ள தொகை: ₹{balance}.',

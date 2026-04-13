@@ -1,21 +1,22 @@
 'use client';
 
-import { useRef, useState, useEffect } from 'react';
-import { X, RotateCcw, Check, Fingerprint, Pen, CheckCircle } from 'lucide-react';
+import React, { useRef, useState, useEffect } from 'react';
+import { X, RotateCcw, Check, Fingerprint, Pen, CheckCircle, Info } from 'lucide-react';
 
 interface SignaturePadProps {
-    onSave: (signature: string, method: 'signature' | 'fingerprint') => void;
+    onSave: (signature: string, method: 'signature' | 'fingerprint', name?: string) => void;
     onCancel: () => void;
     t: any;
 }
 
-export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps) {
+export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps): React.ReactElement {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [isDrawing, setIsDrawing] = useState(false);
     const [isEmpty, setIsEmpty] = useState(true);
     const [method, setMethod] = useState<'signature' | 'fingerprint'>('signature');
     const [isFingerprinting, setIsFingerprinting] = useState(false);
     const [fingerprintCaptured, setFingerprintCaptured] = useState(false);
+    const [fingerprintName, setFingerprintName] = useState('');
 
     useEffect(() => {
         if (method !== 'signature') return;
@@ -91,6 +92,7 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
             setIsEmpty(true);
         } else {
             setFingerprintCaptured(false);
+            setFingerprintName('');
         }
     };
 
@@ -98,36 +100,57 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
         setIsFingerprinting(true);
         setFingerprintCaptured(false);
 
-        // Mantra RD Service standard ports
+        // Mantra RD Service standard ports (Tried in order)
         const ports = [11100, 11101, 11102, 11103, 11104, 11105];
+        const protocols = ['http', 'https'];
         let activePort = null;
+        let activeProtocol = 'http';
 
-        // 1. Discover Active RD Service Port
+        console.log("Mantra: Discovering RD Service...");
+
+        // 1. Discover Active RD Service Port & Protocol
+        discoveryLoop:
         for (const port of ports) {
-            try {
-                const url = `http://localhost:${port}/rd/info`;
-                const res = await fetch(url, { method: 'DEVICEINFO' }); // Mantra discovery often uses DEVICEINFO or simple GET
-                if (res.ok) {
-                    activePort = port;
-                    break;
+            for (const protocol of protocols) {
+                try {
+                    const url = `${protocol}://127.0.0.1:${port}/rd/info`;
+                    // Timeout-based fetch to avoid hanging on many ports
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 1000);
+
+                    const res = await fetch(url, { 
+                        method: 'GET',
+                        signal: controller.signal 
+                    });
+                    
+                    clearTimeout(timeoutId);
+                    
+                    if (res.ok) {
+                        activePort = port;
+                        activeProtocol = protocol;
+                        console.log(`Mantra: Found RD Service on ${url}`);
+                        break discoveryLoop;
+                    }
+                } catch (e) {
+                    continue;
                 }
-            } catch (e) {
-                continue;
             }
         }
 
         if (!activePort) {
-            // Fallback: Try a simple GET if DEVICEINFO failed or just try 11100
+            // Last resort: standard port
             activePort = 11100;
+            activeProtocol = 'http';
         }
 
         // 2. Capture Fingerprint
         try {
-            const captureUrl = `http://localhost:${activePort}/rd/capture`;
-            // Standard RD Service Capture Request (XML)
+            const captureUrl = `${activeProtocol}://127.0.0.1:${activePort}/rd/capture`;
             const captureRequest = `
                 <Opts fCount="1" fType="0" iCount="0" iType="0" pCount="0" pType="0" format="0" pidVer="2.0" timeout="10000" otp="" wadh="" posh="" env="P" />
             `.trim();
+
+            console.log("Mantra: Sending CAPTURE request...");
 
             const response = await fetch(captureUrl, {
                 method: 'CAPTURE',
@@ -144,13 +167,30 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
             const errInfo = respNode?.getAttribute("errInfo");
 
             if (errCode === "0") {
+                console.log("Mantra: Capture Success");
                 setFingerprintCaptured(true);
             } else {
+                console.warn(`Mantra: Capture Error ${errCode} - ${errInfo}`);
                 alert(`Fingerprint Capture Error (${errCode}): ${errInfo}`);
             }
-        } catch (error) {
-            console.error("Mantra Capture Failed:", error);
-            alert("Could not communicate with Mantra RD Service. Please ensure it is running.");
+        } catch (error: any) {
+            console.error("Mantra: Capture Failed:", error);
+            const isProduction = window.location.protocol === 'https:';
+            
+            if (error.name === 'AbortError') {
+                alert("Mantra: Connection timeout. Please ensure the RD Service is running.");
+            } else if (isProduction) {
+                alert(`Security Block: Fingerprint scanning on HTTPS (${window.location.hostname}) requires browser permission to talk to your local device.
+
+Please follow these steps:
+1. Open a NEW tab and go to: http://127.0.0.1:11100/rd/info (or port 11101/11102).
+2. If you see a security warning, click "Advanced" and "Proceed".
+3. Return here and try again.
+
+Alternatively, enable 'chrome://flags/#allow-insecure-localhost' in Chrome.`);
+            } else {
+                alert(`Mantra Capture Failed: ${error.message || "Could not communicate with local service."}`);
+            }
         } finally {
             setIsFingerprinting(false);
         }
@@ -164,8 +204,12 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
             onSave(canvas.toDataURL('image/png'), 'signature');
         } else {
             if (!fingerprintCaptured) return;
+            if (!fingerprintName.trim()) {
+                alert(t.enterName || 'Please enter name');
+                return;
+            }
             // Provide a static fingerprint placeholder or similar identifier
-            onSave('FINGERPRINT_CAPTURED', 'fingerprint');
+            onSave('FINGERPRINT_CAPTURED', 'fingerprint', fingerprintName);
         }
     };
 
@@ -195,6 +239,24 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
                         </button>
                     </div>
 
+                    {method === 'fingerprint' && (
+                        <div style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '6px', 
+                            fontSize: '11px', 
+                            color: 'var(--text-muted)',
+                            marginBottom: '12px',
+                            background: 'var(--surface-1)',
+                            padding: '6px 10px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border)'
+                        }}>
+                            <Info size={14} className="text-secondary" />
+                            <span>Mantra MFS100 (S/N: 4725029)</span>
+                        </div>
+                    )}
+
                     <div style={{ marginBottom: '12px', fontSize: '13px', color: 'var(--text-muted)' }}>
                         {method === 'signature' ? t.signHere : t.captureFingerprint}
                     </div>
@@ -220,7 +282,7 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
                         </div>
                     ) : (
                         <div style={{
-                            height: '200px',
+                            minHeight: '200px',
                             border: '2px dashed var(--border)',
                             borderRadius: 'var(--radius)',
                             background: '#f8fafc',
@@ -228,7 +290,8 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
                             flexDirection: 'column',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            gap: '16px'
+                            gap: '16px',
+                            padding: '24px'
                         }}>
                             {isFingerprinting ? (
                                 <div className="animate-pulse" style={{ textAlign: 'center' }}>
@@ -236,9 +299,20 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
                                     <div style={{ fontSize: '14px', fontWeight: 600, marginTop: '8px', color: 'var(--primary)' }}>Scanning...</div>
                                 </div>
                             ) : fingerprintCaptured ? (
-                                <div style={{ textAlign: 'center' }}>
-                                    <CheckCircle size={64} style={{ color: 'var(--success)' }} />
-                                    <div style={{ fontSize: '14px', fontWeight: 700, marginTop: '8px', color: 'var(--success)' }}>Captured Successfully</div>
+                                <div style={{ textAlign: 'center', width: '100%' }}>
+                                    <CheckCircle size={64} style={{ color: 'var(--success)', marginBottom: '16px' }} />
+                                    <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '20px', color: 'var(--success)' }}>Captured Successfully</div>
+                                    
+                                    <div className="form-group" style={{ textAlign: 'left' }}>
+                                        <label className="form-label">{t.enterName || 'Enter Name'}</label>
+                                        <input 
+                                            className="form-input" 
+                                            value={fingerprintName} 
+                                            onChange={e => setFingerprintName(e.target.value)}
+                                            placeholder="..."
+                                            autoFocus
+                                        />
+                                    </div>
                                 </div>
                             ) : (
                                 <button className="btn btn-primary btn-lg" onClick={simulateFingerprint}>
@@ -255,7 +329,7 @@ export default function SignaturePad({ onSave, onCancel, t }: SignaturePadProps)
                     <button
                         className="btn btn-primary"
                         onClick={save}
-                        disabled={method === 'signature' ? isEmpty : !fingerprintCaptured}
+                        disabled={method === 'signature' ? isEmpty : !fingerprintCaptured || !fingerprintName.trim()}
                     >
                         <Check size={14} /> {t.confirm || 'Confirm'}
                     </button>

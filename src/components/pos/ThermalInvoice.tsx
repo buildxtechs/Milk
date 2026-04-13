@@ -84,6 +84,24 @@ export default function ThermalInvoice({
                 <div>{divider}</div>
             </div>
 
+            {/* Signature / Verification */}
+            <div style={{ marginTop: '16px', marginBottom: '16px' }}>
+                {transaction.validationMethod === 'fingerprint' ? (
+                    <div style={{ border: '1px solid #000', padding: '8px', textAlign: 'center' }}>
+                        <div style={{ fontSize: '10px', fontWeight: 'bold', marginBottom: '4px' }}>
+                            {transaction.fingerprintName ? 'கைரேகை சரிபார்க்கப்பட்டது' : 'FINGERPRINT VERIFIED'}
+                        </div>
+                        <div style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase' }}>
+                            {transaction.fingerprintName}
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ paddingTop: '20px', borderTop: '1px dashed #000', textAlign: 'center', fontSize: '10px' }}>
+                        வாடிக்கையாளர் கையொப்பம் / Customer Signature
+                    </div>
+                )}
+            </div>
+
             {/* Footer */}
             <div style={{ textAlign: 'center', marginTop: '12px' }}>
                 <div style={{ fontWeight: 'bold' }}>🙏 நன்றி! மீண்டும் வாங்க வாருங்கள்.</div>

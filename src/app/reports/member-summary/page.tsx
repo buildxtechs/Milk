@@ -90,7 +90,7 @@ export default function MemberSummaryPage() {
                 )}
             </div>
 
-            <div className="card shadow-sm">
+            <div className="card shadow-sm print-area">
                 <div className="table-container">
                     <table className="export-table">
                         <thead>
@@ -134,13 +134,10 @@ export default function MemberSummaryPage() {
                 .export-table th { white-space: nowrap; }
                 .print-only-cell { display: none; }
                 @media print {
-                    .no-print { display: none !important; }
                     .print-only-cell { display: table-cell !important; }
                     .print-hide { display: none !important; }
-                    .card { border: none; box-shadow: none; }
                     .export-table th { background: #f8fafc !important; color: black !important; border-bottom: 2px solid #e2e8f0; }
                     .export-table td { border-bottom: 1px solid #e2e8f0; }
-                    body { background: white !important; }
                 }
             `}</style>
         </div>

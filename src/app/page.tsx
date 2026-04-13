@@ -118,6 +118,17 @@ export default function DashboardPage() {
                     </div>
                 </div>
 
+                <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f0f9ff 100%)' }}>
+                    <div className="stat-icon blue" style={{ background: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)', color: 'white' }}>
+                        <ShoppingCart size={22} />
+                    </div>
+                    <div>
+                        <div className="stat-label">{t.totalPurchasesOfMonth}</div>
+                        <div className="stat-value" style={{ color: '#1e3a8a' }}>{monthlyTransactions.length}</div>
+                        <div className="stat-sub">{t.thisMonth}</div>
+                    </div>
+                </div>
+
                 <div className="stat-card" style={{ background: 'linear-gradient(135deg, #ffffff 0%, #f5f3ff 100%)' }}>
                     <div className="stat-icon purple" style={{ background: 'linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%)', color: 'white' }}>
                         <Minus size={22} />

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useStore, useCustomers, useProducts, useTransactions, useAdvances, useExternalDeductions, useSettings } from '@/lib/store';
 import { translations } from '@/lib/translations';
 import { Transaction, TransactionItem, PaymentMode } from '@/lib/types';
-import { generateInvoiceId, generateAdvanceId, formatCurrency, todayStr, currentMonthStr, getMonthlyPurchaseCount, getNextEligibleDate, formatDate, generateWhatsAppLink, parseTemplate, generatePOSWhatsAppMessage, calculateCustomerBalance } from '@/lib/utils';
+import { generateInvoiceId, generateAdvanceId, formatCurrency, todayStr, currentMonthStr, getMonthlyPurchaseCount, formatDate, generateWhatsAppLink, parseTemplate, generatePOSWhatsAppMessage, calculateCustomerBalance } from '@/lib/utils';
 import { ShoppingCart, Plus, Minus, Trash2, AlertTriangle, CheckCircle, Search, X, Info, Send, Fingerprint, Printer } from 'lucide-react';
 import CustomerDetailsModal from '@/components/customers/CustomerDetailsModal';
 import SignaturePad from '@/components/pos/SignaturePad';
@@ -64,8 +64,6 @@ export default function POSPage() {
     // Purchase limit check
     const currentMonth = currentMonthStr();
     const purchaseCount = selectedCustomerId ? getMonthlyPurchaseCount(selectedCustomerId, currentMonth, transactions) : 0;
-    const isLimitReached = purchaseCount >= settings.maxPurchasesPerMonth;
-    const nextEligible = selectedCustomerId ? getNextEligibleDate(selectedCustomerId, transactions) : '';
 
     const totalBalance = calculateCustomerBalance(selectedCustomerId || '', advances, deductions);
 
@@ -115,10 +113,10 @@ export default function POSPage() {
     const subtotal = cart.reduce((s, i) => s + i.total, 0);
     const grandTotal = Math.max(0, subtotal - discount);
 
-    const handleCheckout = (signature: string, method?: 'signature' | 'fingerprint') => {
+    const handleCheckout = (signature: string, method?: 'signature' | 'fingerprint', name?: string) => {
         if (!selectedCustomerId) { showToast(language === 'ta' ? 'வாடிக்கையாளரை தேர்வு செய்யவும்' : 'Please select a customer'); return; }
         if (cart.length === 0) { showToast(language === 'ta' ? 'கார்ட் காலியாக உள்ளது' : 'Cart is empty'); return; }
-        if (isLimitReached) { showToast(t.purchaseLimitMsg); return; }
+
 
         // Capture balances BEFORE any updates
         const oldBal = calculateCustomerBalance(selectedCustomerId, advances, deductions);
@@ -156,6 +154,7 @@ export default function POSPage() {
             paymentMode,
             validationMethod: method || validationMethod,
             signature,
+            fingerprintName: name,
             notes,
             createdAt: new Date().toISOString(),
         };
@@ -167,31 +166,39 @@ export default function POSPage() {
         const custName = customer?.name || '';
         const custPhone = customer?.whatsapp || customer?.mobile || '';
 
-        setSaleSuccess({ txn, oldBal, currentBal, customerName: custName, customerPhone: custPhone });
+        // Reset all form state
+        setCart([]);
+        setDiscount(0);
         setNotes('');
         setBudget(0);
         setCustomerSearch('');
         setSelectedCustomerId('');
         setShowSignaturePad(false);
+        setSaleDate(todayStr());
 
-        // Auto-trigger print first, then WhatsApp
-        setTimeout(() => {
-            window.print();
-        }, 500);
+        // Set success modal — must happen after clearing other state
+        setSaleSuccess({ txn, oldBal, currentBal, customerName: custName, customerPhone: custPhone });
 
-        // Auto-send WhatsApp message after print dialog
-        if (customer?.whatsapp) {
-            const msg = generatePOSWhatsAppMessage(txn, custName, oldBal, currentBal, settings);
+        // Defer print & WhatsApp until after React renders the success modal
+        requestAnimationFrame(() => {
             setTimeout(() => {
-                window.open(generateWhatsAppLink(customer.whatsapp, msg), '_blank');
-            }, 2000);
-        }
+                window.print();
+            }, 600);
+
+            // Auto-send WhatsApp message after print dialog
+            if (customer?.whatsapp) {
+                const msg = generatePOSWhatsAppMessage(txn, custName, oldBal, currentBal, settings);
+                setTimeout(() => {
+                    window.open(generateWhatsAppLink(customer.whatsapp, msg), '_blank');
+                }, 2500);
+            }
+        });
     };
 
     const handleCompleteSale = () => {
         if (!selectedCustomerId) { showToast(language === 'ta' ? 'வாடிக்கையாளரை தேர்வு செய்யவும்' : 'Please select a customer'); return; }
         if (cart.length === 0) { showToast(language === 'ta' ? 'கார்ட் காலியாக உள்ளது' : 'Cart is empty'); return; }
-        if (isLimitReached) { showToast(t.purchaseLimitMsg); return; }
+
 
         setShowSignaturePad(true);
     };
@@ -209,12 +216,13 @@ export default function POSPage() {
         <div>
             {toast && <div className="alert alert-warning" style={{ position: 'fixed', top: '80px', right: '20px', zIndex: 2000, width: 'auto' }}>{toast}</div>}
 
-            <div className="page-header">
-                <div>
-                    <h1 className="page-title">{t.pos}</h1>
-                    <p className="page-subtitle">{t.posSubtitle}</p>
+            <div className="no-print">
+                <div className="page-header">
+                    <div>
+                        <h1 className="page-title">{t.pos}</h1>
+                        <p className="page-subtitle">{t.posSubtitle}</p>
+                    </div>
                 </div>
-            </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_380px] gap-5 items-start">
                 {/* Left: Product Selection */}
@@ -282,27 +290,14 @@ export default function POSPage() {
                                 {selectedCustomer && (
                                     <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
                                         <span className="badge badge-green">{selectedCustomer.village}</span>
-                                        <span className={`badge ${isLimitReached ? 'badge-red' : 'badge-blue'}`}>
-                                            {purchaseCount}/{settings.maxPurchasesPerMonth} {t.purchases}
-                                        </span>
                                         <button className="btn btn-ghost btn-sm btn-icon" onClick={() => setShowCustomerDetails(true)} title={t.view}>
                                             <Info size={16} style={{ color: 'var(--primary)' }} />
                                         </button>
-                                        {isLimitReached && (
-                                            <span className="badge badge-red">
-                                                <AlertTriangle size={10} />
-                                                {t.purchaseLimit}
-                                            </span>
-                                        )}
+
                                     </div>
                                 )}
                             </div>
-                            {isLimitReached && (
-                                <div className="alert alert-error" style={{ marginTop: '12px', marginBottom: 0 }}>
-                                    <AlertTriangle size={16} />
-                                    {t.purchaseLimitMsg} {t.nextEligibleDate}: {formatDate(nextEligible)}
-                                </div>
-                            )}
+
                             {selectedCustomer && totalBalance <= 500 && totalBalance > 0 && (
                                 <div className="alert alert-warning" style={{ marginTop: '12px', marginBottom: 0 }}>
                                     <AlertTriangle size={16} />
@@ -378,11 +373,16 @@ export default function POSPage() {
                 {/* Right: Cart */}
                 <div style={{ position: 'sticky', top: '80px' }}>
                     <div className="card">
-                        <div className="card-header">
+                        <div className="card-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span className="card-title">
                                 <ShoppingCart size={16} style={{ display: 'inline', marginRight: '6px' }} />
                                 {t.cart} ({cart.length})
                             </span>
+                            {selectedCustomer && (
+                                <span className="badge badge-blue" style={{ fontSize: '11px' }}>
+                                    {t.monthlyPurchases}: {purchaseCount}
+                                </span>
+                            )}
                         </div>
                         <div className="card-body" style={{ padding: '0' }}>
                             {cart.length === 0 ? (
@@ -493,7 +493,7 @@ export default function POSPage() {
                                     className="btn btn-primary w-full btn-lg"
                                     style={{ width: '100%', justifyContent: 'center' }}
                                     onClick={handleCompleteSale}
-                                    disabled={isLimitReached}
+
                                 >
                                     <CheckCircle size={18} />
                                     {t.completeSale}
@@ -594,15 +594,16 @@ export default function POSPage() {
                 {showSignaturePad && (
                     <SignaturePad
                         t={t}
-                        onSave={(sig, method) => handleCheckout(sig, method)}
+                        onSave={(sig, method, name) => handleCheckout(sig, method, name)}
                         onCancel={() => setShowSignaturePad(false)}
                     />
                 )}
             </div>
+        </div>
 
-            {/* Thermal Invoice — OUTSIDE grid, only visible during print */}
+        {/* Thermal Invoice — OUTSIDE grid, only visible during print */}
             {saleSuccess && (
-                <div id="thermal-print-area" className="print-only">
+                <div id="thermal-print-area" className="print-area">
                     <ThermalInvoice
                         transaction={saleSuccess.txn}
                         customerName={saleSuccess.customerName}

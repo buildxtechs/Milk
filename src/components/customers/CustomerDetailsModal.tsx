@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
 import { Customer, Transaction, Advance } from '@/lib/types';
 import { Translations } from '@/lib/translations';
-import { formatDate, formatCurrency, currentMonthStr, getNextEligibleDate } from '@/lib/utils';
-import { X, Calendar, ShoppingBag, Wallet, Info, ArrowRight } from 'lucide-react';
+import { formatDate, formatCurrency, currentMonthStr } from '@/lib/utils';
+import { X, ShoppingBag, Wallet, Info, ArrowRight } from 'lucide-react';
 import Link from 'next/link';
 
 interface CustomerDetailsModalProps {
@@ -35,9 +35,6 @@ export default function CustomerDetailsModal({
         .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         [customer.id, transactions]);
 
-    // Next Schedule
-    const nextEligibleDate = getNextEligibleDate(customer.id, transactions);
-    const isEligible = nextEligibleDate <= new Date().toISOString().split('T')[0];
 
     // Calculate total spend
     const totalSpend = customerTransactions.reduce((sum, t) => sum + t.totalAmount, 0);
@@ -78,22 +75,22 @@ export default function CustomerDetailsModal({
                     </div>
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-                        {/* Next Schedule / Eligibility */}
+                        {/* Monthly Overview */}
                         <div className="card">
                             <div className="card-header">
-                                <h4 className="card-title">{t.nextEligibleDate}</h4>
+                                <h4 className="card-title">{language === 'ta' ? 'இந்த மாத சுருக்கம்' : 'Monthly Overview'}</h4>
                             </div>
                             <div className="card-body" style={{ textAlign: 'center', padding: '32px' }}>
-                                <Calendar size={48} style={{ color: isEligible ? 'var(--primary)' : 'var(--text-muted)', marginBottom: '16px' }} />
-                                <div style={{ fontSize: '24px', fontWeight: 800, color: isEligible ? 'var(--primary)' : 'var(--text-muted)' }}>
-                                    {formatDate(nextEligibleDate)}
+                                <ShoppingBag size={48} style={{ color: 'var(--primary)', marginBottom: '16px' }} />
+                                <div style={{ fontSize: '24px', fontWeight: 800, color: 'var(--primary)' }}>
+                                    {transactions.filter(t => t.date.startsWith(currentMonth) && t.customerId === customer.id).length}
                                 </div>
                                 <p style={{ marginTop: '8px', color: 'var(--text-secondary)' }}>
-                                    {isEligible
-                                        ? (language === 'ta' ? 'கொள்முதல் செய்ய தகுதியுடையவர்' : 'Eligible for purchase now')
-                                        : (language === 'ta' ? 'அடுத்த கொள்முதல் தேதி' : 'Next eligible purchase date')
-                                    }
+                                    {language === 'ta' ? 'இந்த மாத கொள்முதல் எண்ணிக்கை' : 'Purchases this month'}
                                 </p>
+                                <div style={{ marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border)', fontWeight: 700, fontSize: '18px' }}>
+                                    {formatCurrency(summary.productDeductions)}
+                                </div>
                             </div>
                         </div>
 

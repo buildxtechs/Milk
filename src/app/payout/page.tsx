@@ -53,7 +53,7 @@ export default function PayoutPage() {
         setCurrentDeductions(currentDeductions.filter((_, i) => i !== idx));
     };
 
-    const handleMarkPaid = (signature: string) => {
+    const handleMarkPaid = (signature: string, method?: 'signature' | 'fingerprint', name?: string) => {
         if (!selectedCustomerId || netPayout < 0) return;
 
         // 1. Record individual external deductions
@@ -79,6 +79,7 @@ export default function PayoutPage() {
             netAmount: netPayout,
             date: todayStr(),
             signature,
+            fingerprintName: name,
             createdAt: new Date().toISOString()
         });
 
@@ -272,7 +273,7 @@ export default function PayoutPage() {
             {showSignature && (
                 <SignaturePad
                     t={t}
-                    onSave={handleMarkPaid}
+                    onSave={(sig, method, name) => handleMarkPaid(sig, method, name)}
                     onCancel={() => setShowSignature(false)}
                 />
             )}

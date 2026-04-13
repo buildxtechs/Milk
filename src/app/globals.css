@@ -807,49 +807,82 @@ tbody tr:hover {
 
 /* ── Print Styles ──────────────────────────────────────────── */
 @media print {
-    /* Hide EVERYTHING first */
-    body * {
-        visibility: hidden;
+    /* Hide EVERYTHING by default */
+    body > * {
+        display: none !important;
     }
 
-    /* Then show ONLY the thermal receipt and its children */
-    #thermal-print-area,
-    #thermal-print-area * {
-        visibility: visible !important;
-    }
-
-    #thermal-print-area {
-        display: block !important;
-        position: absolute;
-        left: 0;
-        top: 0;
-        width: 80mm;
-        padding: 2mm;
+    /* Show only the container that holds the print-area */
+    /* Note: In Next.js/Layout pattern, we need to show the ancestors */
+    body, html {
         background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        height: auto !important;
     }
 
+    /* Force the main layout components to be visible if they contain a print-area */
+    .app-layout, 
+    .main-content,
+    .page-content,
+    div:has(> .print-area),
+    div:has(> #thermal-print-area),
+    div:has(> #invoice-print) {
+        display: block !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        border: none !important;
+        width: 100% !important;
+    }
+
+    /* Explicitly hide common UI elements */
     .sidebar,
     .header,
     .no-print,
     .sidebar-overlay,
-    .modal-overlay {
+    .modal-overlay:not(:has(.print-area)),
+    .modal-header,
+    .modal-footer:not(.print-visible) {
         display: none !important;
     }
 
-    .main-content {
-        margin-left: 0 !important;
+    /* Handle Modals that contain print areas */
+    .modal-overlay:has(.print-area) {
+        display: block !important;
+        position: static !important;
+        background: none !important;
+        backdrop-filter: none !important;
         padding: 0 !important;
     }
 
-    body {
-        background: white !important;
+    .modal:has(.print-area) {
+        display: block !important;
+        position: static !important;
+        box-shadow: none !important;
+        max-width: none !important;
+        max-height: none !important;
+        width: 100% !important;
         margin: 0 !important;
         padding: 0 !important;
     }
 
+    /* The actual content to print */
+    .print-area,
+    #thermal-print-area,
+    #invoice-print {
+        display: block !important;
+        visibility: visible !important;
+    }
+
+    /* Thermal Specifics */
+    #thermal-print-area {
+        width: 80mm;
+        margin: 0 auto;
+        padding: 2mm;
+    }
+
     @page {
         margin: 0;
-        size: 80mm auto;
     }
 }
 

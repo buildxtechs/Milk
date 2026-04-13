@@ -177,7 +177,7 @@ export default function PayslipPage() {
     return (
         <div className="animate-fade-in">
             <div className="page-header">
-                <div>
+                <div className="no-print">
                     <h1 className="page-title">{language === 'ta' ? 'வாடிக்கையாளர் பேஸ்லிப்' : 'Customer Payslip'}</h1>
                     <p className="page-subtitle">{language === 'ta' ? 'முழு விற்பனை மற்றும் வரவு விவரங்கள்' : 'Full purchase and credit details'}</p>
                 </div>
@@ -208,7 +208,7 @@ export default function PayslipPage() {
             </div>
 
             {selectedCustomer ? (
-                <div className="payslip-container" ref={payslipRef}>
+                <div className="payslip-container print-area" ref={payslipRef}>
                     <div className="card shadow-sm" style={{ marginBottom: '16px', overflow: 'hidden' }}>
                         <div className="card-body" style={{ textAlign: 'center', borderBottom: '2px solid var(--primary-light)', padding: '32px' }}>
                             {settings.logo && <img src={settings.logo} alt="Logo" style={{ width: '80px', height: '80px', marginBottom: '16px', borderRadius: '12px' }} />}
@@ -382,11 +382,7 @@ export default function PayslipPage() {
                 }
 
                 @media print {
-                    .no-print, .page-header div:last-child { display: none !important; }
-                    .page-header { margin-bottom: 0 !important; }
-                    .card { border: 1px solid #e2e8f0; box-shadow: none !important; }
                     .payslip-table th { background: #f1f5f9 !important; color: black !important; -webkit-print-color-adjust: exact; }
-                    body { background: white; padding: 0; }
                 }
             `}</style>
         </div>

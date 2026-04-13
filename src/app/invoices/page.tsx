@@ -41,6 +41,8 @@ export default function InvoicesPage() {
                 </div>
             </div>
 
+            <div className="no-print">
+
 
             {/* Filters */}
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-4 mb-4 items-center">
@@ -107,6 +109,7 @@ export default function InvoicesPage() {
                     </table>
                 </div>
             </div>
+        </div>
 
 
             {/* Invoice View Modal */}

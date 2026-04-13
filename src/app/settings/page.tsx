@@ -179,56 +179,7 @@ export default function SettingsPage() {
                     </div>
                 </div>
 
-                {/* Purchase Controls */}
-                <div className="card">
-                    <div className="card-header">
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <ShieldCheck size={20} style={{ color: 'var(--primary)' }} />
-                            <h2 className="card-title">{t.purchaseControls}</h2>
-                        </div>
-                    </div>
-                    <div className="card-body">
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                            <div className="form-group" style={{ maxWidth: '400px' }}>
-                                <label className="form-label">{t.maxPurchasesPerMonth}</label>
-                                <input
-                                    className="form-input"
-                                    type="number"
-                                    min={1}
-                                    max={100}
-                                    value={form.maxPurchasesPerMonth}
-                                    onChange={e => setForm({ ...form, maxPurchasesPerMonth: parseInt(e.target.value) || 1 })}
-                                />
-                                <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '4px' }}>
-                                    {language === 'ta' ? 'ஒரு வாடிக்கையாளர் ஒரு மாதத்திற்கு எத்தனை முறை தீவனம் வாங்கலாம் என்பதை கட்டுப்படுத்துகிறது.' : 'Controls how many times a customer can purchase feed per month.'}
-                                </p>
-                            </div>
 
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer' }} onClick={() => setForm({ ...form, enforceCustomerSelection: !form.enforceCustomerSelection })}>
-                                <div style={{
-                                    width: '44px',
-                                    height: '24px',
-                                    backgroundColor: form.enforceCustomerSelection ? 'var(--primary)' : 'var(--border)',
-                                    borderRadius: '12px',
-                                    position: 'relative',
-                                    transition: 'background-color 0.2s'
-                                }}>
-                                    <div style={{
-                                        width: '18px',
-                                        height: '18px',
-                                        backgroundColor: 'white',
-                                        borderRadius: '50%',
-                                        position: 'absolute',
-                                        top: '3px',
-                                        left: form.enforceCustomerSelection ? '23px' : '3px',
-                                        transition: 'left 0.2s'
-                                    }} />
-                                </div>
-                                <span style={{ fontSize: '14px', fontWeight: 500 }}>{t.enforceCustomerSelection}</span>
-                            </div>
-                        </div>
-                    </div>
-                </div>
 
                 {/* WhatsApp Templates */}
                 <div className="card">

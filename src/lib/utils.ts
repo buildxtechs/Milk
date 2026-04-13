@@ -139,19 +139,6 @@ export function getMonthlyPurchaseCount(
     ).length;
 }
 
-export function getNextEligibleDate(
-    customerId: string,
-    transactions: Transaction[]
-): string {
-    const currentMonth = currentMonthStr();
-    const count = getMonthlyPurchaseCount(customerId, currentMonth, transactions);
-    if (count < 3) return todayStr();
-    // Next month's 1st
-    const nextMonth = new Date();
-    nextMonth.setMonth(nextMonth.getMonth() + 1, 1);
-    return format(nextMonth, 'yyyy-MM-dd');
-}
-
 // ── Currency Formatting ───────────────────────────────────────
 export function formatCurrency(amount: number): string {
     return `₹${amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;

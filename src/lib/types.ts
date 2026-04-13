@@ -80,6 +80,7 @@ export interface Transaction {
     paymentMode: PaymentMode;
     signature?: string;                  // Base64 data URL
     validationMethod?: 'signature' | 'fingerprint';
+    fingerprintName?: string;
     notes?: string;
     createdAt: string;
 }
@@ -128,6 +129,7 @@ export interface Payout {
     netAmount: number;       // Final cash paid to customer
     date: string;
     signature: string;
+    fingerprintName?: string;
     notes?: string;
     createdAt: string;
 }
