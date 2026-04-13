@@ -68,6 +68,7 @@ interface AppState {
     pendingSync: SyncChange[];
     isSyncing: boolean;
     syncData: () => Promise<void>;
+    clearPendingSync: () => void;
     fetchInitialData: () => Promise<void>;
 }
 
@@ -199,10 +200,16 @@ export const useStore = create<AppState>()(
             // Transactions
             transactions: [],
             addTransaction: (transaction) =>
-                set((state) => ({
-                    transactions: [...state.transactions, transaction],
-                    pendingSync: [...state.pendingSync, { type: 'transactions', action: 'upsert', data: transaction, timestamp: Date.now() }]
-                })),
+                set((state) => {
+                    // Strip large signature from sync queue to save space.
+                    // We will re-attach it during the actual syncData call.
+                    const { signature, ...syncItemData } = transaction;
+                    
+                    return {
+                        transactions: [...state.transactions, transaction],
+                        pendingSync: [...state.pendingSync, { type: 'transactions', action: 'upsert', data: syncItemData, timestamp: Date.now() }]
+                    };
+                }),
             updateTransaction: (id, updates) =>
                 set((state) => {
                     const updatedTransactions = state.transactions.map((t) => (t.id === id ? { ...t, ...updates } : t));
@@ -289,8 +296,11 @@ export const useStore = create<AppState>()(
                         : d
                 );
 
+                // Strip large signature from sync queue
+                const { signature, ...syncPayoutData } = payout;
+
                 const syncChanges: SyncChange[] = [
-                    { type: 'payouts', action: 'upsert', data: payout, timestamp: Date.now() }
+                    { type: 'payouts', action: 'upsert', data: syncPayoutData, timestamp: Date.now() }
                 ];
 
                 updatedExternalDeductions.forEach(d => {
@@ -390,9 +400,26 @@ export const useStore = create<AppState>()(
 
                 set({ isSyncing: true });
                 try {
+                    // Re-attach signatures to transaction data before sending to server
+                    const changesWithSignatures = state.pendingSync.map((change: any) => {
+                        if (change.type === 'transactions' && change.action === 'upsert' && !change.data.signature) {
+                            const fullTxn = state.transactions.find((t: any) => t.id === change.data.id);
+                            if (fullTxn?.signature) {
+                                return { ...change, data: { ...change.data, signature: fullTxn.signature } };
+                            }
+                        }
+                        if (change.type === 'payouts' && change.action === 'upsert' && !change.data.signature) {
+                            const fullPayout = state.payouts.find((p: any) => p.id === change.data.id);
+                            if (fullPayout?.signature) {
+                                return { ...change, data: { ...change.data, signature: fullPayout.signature } };
+                            }
+                        }
+                        return change;
+                    });
+
                     const response = await fetch('/api/sync', {
                         method: 'POST',
-                        body: JSON.stringify({ changes: state.pendingSync }),
+                        body: JSON.stringify({ changes: changesWithSignatures }),
                         headers: { 'Content-Type': 'application/json' }
                     });
 
@@ -406,6 +433,7 @@ export const useStore = create<AppState>()(
                     set({ isSyncing: false });
                 }
             },
+            clearPendingSync: () => set({ pendingSync: [] }),
             fetchInitialData: async () => {
                 try {
                     const response = await fetch('/api/sync');

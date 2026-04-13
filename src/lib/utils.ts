@@ -14,7 +14,7 @@ export function generateCustomerId(existingIds: string[]): string {
     const nums = existingIds
         .map(id => parseInt(String(id).replace(/\D/g, ''), 10))
         .filter(n => !isNaN(n));
-    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    const next = nums.reduce((max, n) => (n > max ? n : max), 0) + 1;
     return `CUST-${String(next).padStart(3, '0')}`;
 }
 
@@ -23,7 +23,7 @@ export function generateInvoiceId(existingIds: string[]): string {
         .filter(id => id.startsWith('INV-'))
         .map(id => parseInt(id.replace('INV-', ''), 10))
         .filter(n => !isNaN(n));
-    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    const next = nums.reduce((max, n) => (n > max ? n : max), 0) + 1;
     return `INV-${String(next).padStart(5, '0')}`;
 }
 
@@ -32,7 +32,7 @@ export function generateProductId(existingIds: string[]): string {
         .filter(id => id.startsWith('PRD-'))
         .map(id => parseInt(id.replace('PRD-', ''), 10))
         .filter(n => !isNaN(n));
-    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    const next = nums.reduce((max, n) => (n > max ? n : max), 0) + 1;
     return `PRD-${String(next).padStart(4, '0')}`;
 }
 
@@ -41,7 +41,7 @@ export function generateAdvanceId(existingIds: string[]): string {
         .filter(id => id.startsWith('ADV-'))
         .map(id => parseInt(id.replace('ADV-', ''), 10))
         .filter(n => !isNaN(n));
-    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    const next = nums.reduce((max, n) => (n > max ? n : max), 0) + 1;
     return `ADV-${String(next).padStart(4, '0')}`;
 }
 
@@ -55,7 +55,7 @@ export function generateExternalDeductionId(existingIds: string[]): string {
         .filter(id => id.startsWith('DED-'))
         .map(id => parseInt(id.replace('DED-', ''), 10))
         .filter(n => !isNaN(n));
-    const next = nums.length > 0 ? Math.max(...nums) + 1 : 1;
+    const next = nums.reduce((max, n) => (n > max ? n : max), 0) + 1;
     return `DED-${String(next).padStart(4, '0')}`;
 }
 

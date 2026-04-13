@@ -202,7 +202,13 @@ export default function POSPage() {
                     }, 1000); // Wait for modal animation to settle
                 } catch (err: any) {
                     console.error("Sale Processing Error:", err);
-                    alert(t.errorOccurred || "Error processing sale. Check storage space.");
+                    const isQuotaError = err.name === 'QuotaExceededError' || err.code === 22 || err.message?.toLowerCase().includes('quota');
+                    const errorMsg = isQuotaError 
+                        ? (language === 'ta' ? 'சேமிப்பகம் நிறைந்தது! தயவுசெய்து பழைய பதிவுகளை நீக்கவும்.' : 'Storage full! Please clear old records or sync data.')
+                        : (t.errorOccurred || "Error processing sale.");
+                    
+                    setShowSignaturePad(false);
+                    alert(errorMsg);
                 }
             }, 50);
 
